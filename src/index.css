@@ -1,0 +1,252 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+   ELAKAI tokens
+   Aesthetic direction: "Civic Precision" — Swiss transit-signage clarity with
+   Apple Maps calm. This is a public utility, so legibility outranks flourish
+   everywhere the two conflict.
+   ========================================================================== */
+
+@layer base {
+  :root {
+    /* Manrope carries Latin; Noto Sans Bengali picks up Bengali glyphs via
+       per-character font fallback, so one stack serves both locales. */
+    --font-ui: 'Manrope Variable', 'Manrope', 'Noto Sans Bengali', system-ui, sans-serif;
+
+    --canvas: 210 40% 98%; /* #F8FAFC */
+    --surface: 0 0% 100%; /* #FFFFFF */
+    --surface-2: 210 40% 96%;
+    --line: 214 32% 91%;
+
+    --ink: 222 47% 11%; /* #0F172A */
+    --ink-muted: 215 19% 35%;
+    --ink-subtle: 215 16% 47%;
+
+    --primary: 221 83% 53%; /* #2563EB */
+    --primary-hover: 224 76% 45%;
+    --primary-soft: 214 100% 97%;
+    --primary-ink: 226 71% 40%;
+
+    --danger: 0 72% 51%; /* #DC2626 */
+    --danger-hover: 0 74% 42%;
+    --danger-soft: 0 86% 97%;
+    --danger-ink: 0 70% 35%;
+
+    /* Success and Warning never sit behind white text — see tailwind.config.ts.
+       The `-ink` values are what carry label text on the `-soft` fills. */
+    --success: 142 76% 36%; /* #16A34A */
+    --success-soft: 138 76% 97%;
+    --success-ink: 143 64% 24%;
+
+    --warning: 38 92% 50%; /* #F59E0B */
+    --warning-soft: 48 100% 96%;
+    --warning-ink: 23 83% 31%;
+
+    --shadow: 222 47% 11%;
+  }
+
+  .dark {
+    --canvas: 222 47% 7%;
+    --surface: 222 40% 11%;
+    --surface-2: 222 33% 15%;
+    --line: 220 24% 20%;
+
+    --ink: 210 40% 96%;
+    --ink-muted: 215 20% 72%;
+    --ink-subtle: 215 16% 58%;
+
+    --primary: 217 91% 62%;
+    --primary-hover: 217 91% 70%;
+    --primary-soft: 221 55% 17%;
+    --primary-ink: 213 97% 82%;
+
+    --danger: 0 84% 62%;
+    --danger-hover: 0 84% 70%;
+    --danger-soft: 0 45% 16%;
+    --danger-ink: 0 94% 84%;
+
+    --success: 142 69% 48%;
+    --success-soft: 143 42% 14%;
+    --success-ink: 141 79% 76%;
+
+    --warning: 38 92% 55%;
+    --warning-soft: 35 45% 15%;
+    --warning-ink: 48 96% 78%;
+
+    --shadow: 0 0% 0%;
+  }
+
+  * {
+    @apply border-line;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-sans antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+    font-variant-ligatures: contextual;
+    overscroll-behavior-y: none;
+  }
+
+  /* Bengali needs more vertical room than Latin at the same size. */
+  html[lang='bn'] body {
+    line-height: 1.7;
+  }
+  html[lang='bn'] h1,
+  html[lang='bn'] h2,
+  html[lang='bn'] h3 {
+    line-height: 1.25;
+  }
+
+  /* Distances, ratings, prices and clock times must not jitter as they change. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-canvas;
+    border-radius: 4px;
+  }
+
+  /* Chrome on low-end Android renders the default scrollbar heavily. */
+  @media (pointer: fine) {
+    ::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: hsl(var(--line));
+      border-radius: 999px;
+      border: 2px solid hsl(var(--canvas));
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: hsl(var(--ink-subtle) / 0.5);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* The map-grid texture behind the hero. Pure CSS — no image request. */
+  .surveyor-grid {
+    background-image:
+      linear-gradient(to right, hsl(var(--ink) / 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--ink) / 0.045) 1px, transparent 1px);
+    background-size: 44px 44px;
+    background-position: center;
+  }
+
+  .surveyor-dots {
+    background-image: radial-gradient(hsl(var(--ink) / 0.09) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+
+  /* Frosted bars. Restricted to the sticky header and bottom nav. */
+  .glass {
+    background-color: hsl(var(--surface) / 0.82);
+    backdrop-filter: blur(14px) saturate(1.6);
+    -webkit-backdrop-filter: blur(14px) saturate(1.6);
+  }
+
+  @supports not (backdrop-filter: blur(1px)) {
+    .glass {
+      background-color: hsl(var(--surface) / 0.98);
+    }
+  }
+
+  /* Long result lists: let the browser skip offscreen layout work. */
+  .list-perf {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 168px;
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden bg-surface-2;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full animate-shimmer;
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--ink) / 0.055),
+      transparent
+    );
+  }
+
+  /* Horizontal rails on mobile. */
+  .rail {
+    @apply flex gap-3 overflow-x-auto pb-2;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .rail::-webkit-scrollbar {
+    display: none;
+  }
+  .rail > * {
+    scroll-snap-align: start;
+    flex: 0 0 auto;
+  }
+
+  /* Bleed a rail to the screen edge while keeping container padding. */
+  .rail-bleed {
+    margin-inline: calc(var(--bleed, 1rem) * -1);
+    padding-inline: var(--bleed, 1rem);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .text-pretty {
+    text-wrap: pretty;
+  }
+  .pb-safe {
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 0px);
+  }
+  .stack-fade > * {
+    animation: fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+/* Leaflet is loaded lazily; these overrides keep it inside the design system. */
+.leaflet-container {
+  font-family: var(--font-ui) !important;
+  background: hsl(var(--surface-2)) !important;
+}
+.leaflet-control-attribution {
+  font-size: 10px !important;
+  background: hsl(var(--surface) / 0.85) !important;
+  color: hsl(var(--ink-subtle)) !important;
+}
+.leaflet-bar a {
+  color: hsl(var(--ink)) !important;
+  background: hsl(var(--surface)) !important;
+  border-color: hsl(var(--line)) !important;
+}
+.dark .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9);
+}
