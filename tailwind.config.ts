@@ -6,8 +6,8 @@ import type { Config } from 'tailwindcss'
  * All colour is driven by CSS custom properties declared in `src/index.css`
  * so that the dark theme is a single class toggle on <html>.
  *
- * Contrast note that shapes the whole UI: white text on Success (#16A34A) is
- * 3.1:1 and on Warning (#F59E0B) is ~2:1 — both fail WCAG AA for body text.
+ * Contrast note that shapes the whole UI: white text on Success (teal-green) is
+ * ~3.3:1 and on Warning (#F59E0B) is ~2:1 — both fail WCAG AA for body text.
  * Only Primary and Danger are used as solid fills behind white labels. Success
  * and Warning appear as dots, icons, borders, and tinted fills with dark text.
  */
@@ -59,6 +59,10 @@ export default {
       },
       fontSize: {
         // Fluid scale — mobile-first, never smaller than 15px for body copy.
+        // Landing-page display size. Larger and tighter than anything in the
+        // app: the landing headline is read once, from further away, and is the
+        // only place type is asked to carry the whole composition.
+        'display-xl': ['clamp(2.75rem, 1.2rem + 6.4vw, 6rem)', { lineHeight: '0.98', letterSpacing: '-0.042em', fontWeight: '800' }],
         'display-lg': ['clamp(2.5rem, 1.6rem + 4.5vw, 4.25rem)', { lineHeight: '1.02', letterSpacing: '-0.035em', fontWeight: '800' }],
         display: ['clamp(2rem, 1.35rem + 3.2vw, 3.25rem)', { lineHeight: '1.06', letterSpacing: '-0.03em', fontWeight: '800' }],
         title: ['clamp(1.375rem, 1.15rem + 1.1vw, 1.875rem)', { lineHeight: '1.18', letterSpacing: '-0.02em', fontWeight: '700' }],
@@ -106,14 +110,66 @@ export default {
           '70%': { transform: 'scale(1.6)', opacity: '0' },
           '100%': { transform: 'scale(1.6)', opacity: '0' },
         },
+        /* Ambient motion. All three are transform/opacity only so they stay on
+           the compositor — the hero runs several at once on a budget phone.
+           The global prefers-reduced-motion rule in index.css stops them. */
+        float: {
+          '0%, 100%': { transform: 'translate3d(0, 0, 0)' },
+          '50%': { transform: 'translate3d(0, -18px, 0)' },
+        },
+        'float-alt': {
+          '0%, 100%': { transform: 'translate3d(0, 0, 0)' },
+          '50%': { transform: 'translate3d(14px, 12px, 0)' },
+        },
+        sheen: {
+          '0%': { transform: 'translate3d(-140%, 0, 0) skewX(-14deg)' },
+          '100%': { transform: 'translate3d(320%, 0, 0) skewX(-14deg)' },
+        },
+        /* Loading identity. `breathe` is deliberately shallow — a loading mark
+           that visibly throbs reads as an error state, not as progress. */
+        breathe: {
+          '0%, 100%': { opacity: '0.62', transform: 'scale(0.97)' },
+          '50%': { opacity: '1', transform: 'scale(1)' },
+        },
+        'bar-slide': {
+          '0%': { transform: 'translate3d(-100%, 0, 0)' },
+          '100%': { transform: 'translate3d(320%, 0, 0)' },
+        },
       },
       animation: {
         'fade-up': 'fade-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both',
         'fade-in': 'fade-in 0.3s ease-out both',
         shimmer: 'shimmer 1.6s infinite',
         'pulse-ring': 'pulse-ring 2s cubic-bezier(0.22, 1, 0.36, 1) infinite',
+        float: 'float 11s cubic-bezier(0.45, 0, 0.55, 1) infinite',
+        'float-alt': 'float-alt 14s cubic-bezier(0.45, 0, 0.55, 1) infinite',
+        sheen: 'sheen 6s cubic-bezier(0.22, 1, 0.36, 1) infinite',
+        breathe: 'breathe 2.6s cubic-bezier(0.45, 0, 0.55, 1) infinite',
+        'bar-slide': 'bar-slide 1.5s cubic-bezier(0.65, 0, 0.35, 1) infinite',
       },
     },
   },
-  plugins: [],
+  plugins: [
+    /**
+     * `motion-safe:` and `motion-reduce:` are redefined, not removed.
+     *
+     * ELAKAI plays its motion whatever the operating system's accessibility
+     * panel says — the decision, its cost, and how to undo it are documented in
+     * `src/lib/motion.ts`. Tailwind's stock variants compile to
+     * `prefers-reduced-motion` media queries, so leaving them alone would have
+     * silently switched off the ~19 `motion-safe:` classes across the markup on
+     * exactly the machines the rest of the change is meant to serve.
+     *
+     * Redefining them here keeps every one of those classes readable and
+     * correct at its call site: `motion-safe:` still means "this is the moving
+     * version", it simply always applies now. Restoring the media queries is
+     * deleting this plugin.
+     */
+    ({ addVariant }: { addVariant: (name: string, value: string) => void }) => {
+      addVariant('motion-safe', '&')
+      // Valid, and matches nothing: the reduced branch is now unreachable by
+      // design rather than by omission.
+      addVariant('motion-reduce', '&:not(*)')
+    },
+  ],
 } satisfies Config

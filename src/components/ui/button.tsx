@@ -8,8 +8,8 @@ import { cn } from '@/lib/utils'
  * on budget Android hardware, often one-handed and in a hurry.
  *
  * `success` and `warning` deliberately have no solid variant — white text on
- * #16A34A (3.1:1) and #F59E0B (~2:1) both fail WCAG AA. They exist only as
- * tinted fills with dark text.
+ * the success teal-green (~3.3:1) and #F59E0B (~2:1) both fail WCAG AA. They
+ * exist only as tinted fills with dark text.
  */
 const buttonVariants = cva(
   [

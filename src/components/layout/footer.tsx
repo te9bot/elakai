@@ -20,7 +20,7 @@ export function Footer() {
       <div className="container py-10">
         <div className="flex flex-col gap-8 sm:flex-row sm:justify-between">
           <div className="max-w-sm">
-            <Logo />
+            <Logo className="h-20" />
             <p className="mt-3 text-body-sm leading-relaxed text-pretty text-ink-muted">
               {t('footer.about')}
             </p>

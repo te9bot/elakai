@@ -19,7 +19,7 @@ export default defineConfig({
         short_name: 'ELAKAI',
         description:
           'Find trusted local services and emergency contacts in Kushtia. Search, find, call, get help.',
-        theme_color: '#2563EB',
+        theme_color: '#2498EB',
         background_color: '#F8FAFC',
         display: 'standalone',
         orientation: 'portrait',
@@ -66,6 +66,9 @@ export default defineConfig({
           if (id.includes('node_modules')) {
             if (id.includes('leaflet')) return 'maps'
             if (id.includes('framer-motion')) return 'motion'
+            // Split out so the admin panel's auth/storage usage does not sit in
+            // the entry chunk that every public visitor downloads.
+            if (id.includes('@supabase')) return 'supabase'
             if (id.includes('react-dom') || id.includes('react-router')) return 'react-vendor'
           }
         },

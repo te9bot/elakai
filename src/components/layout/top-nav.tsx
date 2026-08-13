@@ -46,9 +46,9 @@ export function TopNav() {
         <Link
           to="/"
           className="shrink-0 rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          aria-label="ELAKAI"
         >
-          <Logo />
+          {/* The lockup's own alt text is the link's accessible name. */}
+          <Logo className="h-11 md:h-[52px]" />
         </Link>
 
         <nav

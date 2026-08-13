@@ -24,27 +24,40 @@
     --ink-muted: 215 19% 35%;
     --ink-subtle: 215 16% 47%;
 
-    --primary: 221 83% 53%; /* #2563EB */
-    --primary-hover: 224 76% 45%;
-    --primary-soft: 214 100% 97%;
-    --primary-ink: 226 71% 40%;
+    /* Primary and Success hues are sampled from assets/elakai-logo.png (blue
+       pin ~205°, green house ~158°) so the palette traces back to the mark.
+       Saturation/lightness are unchanged from the prior tokens — only hue
+       moved — so existing contrast ratios (incl. white-on-primary buttons)
+       are preserved exactly. */
+    --primary: 205 83% 53%; /* #2498EB */
+    --primary-hover: 208 76% 45%;
+    --primary-soft: 198 100% 97%;
+    --primary-ink: 210 71% 40%;
 
-    --danger: 0 72% 51%; /* #DC2626 */
+    --danger: 0 72% 51%; /* #DC2626 — reserved for emergency/danger UI only */
     --danger-hover: 0 74% 42%;
     --danger-soft: 0 86% 97%;
     --danger-ink: 0 70% 35%;
 
     /* Success and Warning never sit behind white text — see tailwind.config.ts.
-       The `-ink` values are what carry label text on the `-soft` fills. */
-    --success: 142 76% 36%; /* #16A34A */
-    --success-soft: 138 76% 97%;
-    --success-ink: 143 64% 24%;
+       The `-ink` values are what carry label text on the `-soft` fills.
+       Success doubles as the palette's green/teal secondary accent. */
+    --success: 158 76% 36%; /* teal-green, from the logo's house mark */
+    --success-soft: 154 76% 97%;
+    --success-ink: 159 64% 24%;
 
     --warning: 38 92% 50%; /* #F59E0B */
     --warning-soft: 48 100% 96%;
     --warning-ink: 23 83% 31%;
 
     --shadow: 222 47% 11%;
+
+    /* The inner top highlight that makes a translucent panel read as a pane of
+       glass rather than as a washed-out fill. Bright over a light backdrop,
+       nearly absent over a dark one — a white hairline that works at 55% on
+       the light canvas looks like a scratch at the same value in dark mode. */
+    --glass-highlight: 0 0% 100%;
+    --glass-highlight-alpha: 0.55;
   }
 
   .dark {
@@ -57,25 +70,28 @@
     --ink-muted: 215 20% 72%;
     --ink-subtle: 215 16% 58%;
 
-    --primary: 217 91% 62%;
-    --primary-hover: 217 91% 70%;
-    --primary-soft: 221 55% 17%;
-    --primary-ink: 213 97% 82%;
+    --primary: 201 91% 62%;
+    --primary-hover: 201 91% 70%;
+    --primary-soft: 205 55% 17%;
+    --primary-ink: 197 97% 82%;
 
     --danger: 0 84% 62%;
     --danger-hover: 0 84% 70%;
     --danger-soft: 0 45% 16%;
     --danger-ink: 0 94% 84%;
 
-    --success: 142 69% 48%;
-    --success-soft: 143 42% 14%;
-    --success-ink: 141 79% 76%;
+    --success: 158 69% 48%;
+    --success-soft: 159 42% 14%;
+    --success-ink: 157 79% 76%;
 
     --warning: 38 92% 55%;
     --warning-soft: 35 45% 15%;
     --warning-ink: 48 96% 78%;
 
     --shadow: 0 0% 0%;
+
+    --glass-highlight: 0 0% 100%;
+    --glass-highlight-alpha: 0.09;
   }
 
   * {
@@ -135,16 +151,12 @@
     }
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-      animation-duration: 0.01ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: 0.01ms !important;
-      scroll-behavior: auto !important;
-    }
-  }
+  /* The blanket `prefers-reduced-motion` shortening that normally lives here is
+     deliberately absent: ELAKAI plays its motion for everyone. That decision,
+     what it costs, and how to undo it are documented in one place —
+     `src/lib/motion.ts`. Nothing else in this file branches on the media query
+     either, so there is no half-reduced state where the JS animates and the CSS
+     does not. */
 }
 
 @layer components {
@@ -175,24 +187,108 @@
     }
   }
 
+  /* ------------------------------------------------------------------ */
+  /* Action glass                                                        */
+  /* ------------------------------------------------------------------ */
+  /*
+     Glass as a hierarchy tool, not a texture: it marks the one card on a
+     screen that has to be reached first. Restricted to emergency and call
+     surfaces for two reasons.
+
+     The first is meaning — if everything is glass, nothing is emphasised.
+
+     The second is cost. `backdrop-filter` forces the compositor to sample and
+     blur everything behind the element on every frame it moves, and the
+     Emergency page can list a dozen contacts at once. Applying it only to the
+     danger-tone cards keeps the count low on exactly the hardware least able
+     to absorb it, which is why `.glass-danger` is opt-in per card rather than
+     baked into the component.
+
+     Colour stays the existing danger/surface tokens at reduced alpha. Both
+     `-ink` foregrounds still clear AA against the resulting blend in light and
+     dark, because the tint is what is being made translucent, not the text.
+  */
+  .glass-danger,
+  .glass-surface {
+    backdrop-filter: blur(16px) saturate(1.4);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    box-shadow:
+      inset 0 1px 0 0 hsl(var(--glass-highlight) / var(--glass-highlight-alpha)),
+      0 1px 2px -1px hsl(var(--shadow) / 0.1),
+      0 12px 28px -10px hsl(var(--shadow) / 0.18);
+  }
+
+  /* Hover lives here rather than as a `hover:shadow-card-hover` utility: that
+     utility replaces the whole box-shadow, taking the inset highlight with it
+     and flattening the glass at exactly the moment it is being pointed at. */
+  .glass-danger:hover,
+  .glass-surface:hover {
+    box-shadow:
+      inset 0 1px 0 0 hsl(var(--glass-highlight) / var(--glass-highlight-alpha)),
+      0 2px 4px -2px hsl(var(--shadow) / 0.12),
+      0 18px 36px -12px hsl(var(--shadow) / 0.22);
+  }
+
+  .glass-danger {
+    background-color: hsl(var(--danger-soft) / 0.78);
+    border-color: hsl(var(--danger) / 0.28);
+  }
+
+  .glass-surface {
+    background-color: hsl(var(--surface) / 0.74);
+    border-color: hsl(var(--line) / 0.85);
+  }
+
+  /* No blur support means no glass — fall back to the opaque fill rather than
+     leaving translucent panels stacked over a busy hero with nothing
+     separating them. */
+  @supports not (backdrop-filter: blur(1px)) {
+    .glass-danger {
+      background-color: hsl(var(--danger-soft));
+    }
+    .glass-surface {
+      background-color: hsl(var(--surface));
+    }
+  }
+
   /* Long result lists: let the browser skip offscreen layout work. */
   .list-perf {
     content-visibility: auto;
     contain-intrinsic-size: auto 168px;
   }
 
+  /* Text-line placeholders. A logo watermark makes no sense on a 12px bar, so
+     these stay bars — but the sweep is tinted with the brand primary rather
+     than neutral ink, so they belong to the same loading identity as the
+     lockup-based placeholders below. */
   .skeleton {
     @apply relative overflow-hidden bg-surface-2;
   }
-  .skeleton::after {
+  .skeleton::after,
+  .brand-sheen::after {
     content: '';
-    @apply absolute inset-0 -translate-x-full animate-shimmer;
+    @apply absolute inset-0 -translate-x-full;
     background-image: linear-gradient(
       90deg,
       transparent,
-      hsl(var(--ink) / 0.055),
+      hsl(var(--primary) / 0.14),
       transparent
     );
+  }
+
+  /* Media-slot placeholders carry the mark; see components/brand-loader.tsx. */
+  .brand-sheen::after {
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--primary) / 0.18),
+      transparent
+    );
+  }
+
+  .skeleton::after,
+  .brand-sheen::after {
+    @apply animate-shimmer;
   }
 
   /* Horizontal rails on mobile. */
@@ -215,7 +311,162 @@
     margin-inline: calc(var(--bleed, 1rem) * -1);
     padding-inline: var(--bleed, 1rem);
   }
+
+  /* ------------------------------------------------------------------ */
+  /* Infinite marquee                                                    */
+  /* ------------------------------------------------------------------ */
+  /*
+     Pure CSS, zero JS per frame. The track holds N identical groups and
+     translates by exactly one group width, so the moment the animation restarts
+     the next copy is sitting where the first one began — the loop has no seam
+     to see.
+
+     The offset is `(-100% - gap) / N`, not `-100% / N`: the track's own gaps sit
+     *between* the groups, so a group is slightly more than 1/N of the track.
+     Expanded for N = 2 this is the familiar `-50% - gap/2`.
+
+     N matters for more than the maths. One group must be wide enough that the
+     tail of the track never reaches the right edge of the screen mid-loop, or a
+     blank stretch scrolls past. The safe width is (N-1) groups, so a short list
+     needs more copies rather than a slower speed.
+  */
+  .marquee {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .marquee-track {
+    display: flex;
+    width: max-content;
+    gap: var(--marquee-gap, 0.75rem);
+    animation: marquee-x var(--marquee-duration, 40s) linear infinite;
+    /* Promote once, up front — re-promoting mid-animation causes a visible
+       hitch on low-end Android. */
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
+  }
+
+  .marquee-group {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--marquee-gap, 0.75rem);
+  }
+
+  /* Hover pause is opt-in: on a touch device there is no hover, so nothing
+     changes there. Focus-within is unconditional — a keyboard user landing
+     inside a moving strip should not have to chase the target. */
+  .marquee[data-pause-on-hover='true']:hover .marquee-track,
+  .marquee:focus-within .marquee-track {
+    animation-play-state: paused;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Draggable infinite band                                             */
+  /* ------------------------------------------------------------------ */
+  /*
+     The marquee above, but grabbable — see lib/infinite-track.ts for the
+     physics and measurement, and components/infinite-track.tsx for the wiring.
+     The track is positioned by a `transform` written once per frame instead of
+     a keyframe, so the same structure serves both the automatic drift and the
+     hand on the content.
+
+     Nothing below sets a width, a copy count or a distance. `.drag-group` is
+     one copy of the content at whatever width the content happens to be, and
+     `.drag-track` is however many of those the viewport needs — both decided at
+     runtime from the rendered result.
+
+     `--drag-gap` is set inline by the track and read back off it by the engine:
+     the loop wraps by one group *plus* the gap that follows it, so the gap has
+     to be a number the JS can see, not just a rendered space.
+  */
+  .drag-band {
+    cursor: grab;
+    /* The band owns the horizontal axis; the page keeps the vertical one. */
+    touch-action: pan-y;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .drag-band[data-dragging='true'] {
+    cursor: grabbing;
+  }
+
+  /* Anchors and images are natively draggable, and a native drag steals the
+     gesture mid-throw. Belt and braces with the dragstart handler. */
+  .drag-band a,
+  .drag-band img,
+  .drag-band svg {
+    -webkit-user-drag: none;
+  }
+
+  /* An anchor brings its own `cursor: pointer`, and inside the band that wins
+     on exactly the elements the cursor spends all its time over — so the one
+     affordance the section has to advertise, that it can be grabbed, never
+     appears. Inheriting picks up grab and grabbing in turn. The chips are still
+     links and a click still opens them; see the click/drag split in
+     lib/infinite-track.ts. */
+  .drag-band a {
+    cursor: inherit;
+  }
+
+  /* Nothing under the cursor needs to respond while the band is being thrown,
+     and a row of hover transitions firing as the content slides past is work
+     for no one. */
+  .drag-band[data-dragging='true'] * {
+    pointer-events: none;
+  }
+
+  .drag-row {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .drag-track {
+    display: flex;
+    width: max-content;
+    column-gap: var(--drag-gap, 0.75rem);
+    /* Promoted up front. Re-promoting mid-gesture is a visible hitch on the
+       phones this app is actually used on. */
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
+  }
+
+  .drag-group {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    column-gap: var(--drag-gap, 0.75rem);
+  }
+
+  /* Reduced motion, and the only other shape a band can take: one copy, no
+     loop, no gesture — an ordinary rail you scroll yourself. */
+  .drag-row-static {
+    display: flex;
+    overflow-x: auto;
+    column-gap: var(--drag-gap, 0.75rem);
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .drag-row-static::-webkit-scrollbar {
+    display: none;
+  }
 }
+
+@keyframes marquee-x {
+  to {
+    transform: translate3d(
+      calc((-100% - var(--marquee-gap, 0.75rem)) / var(--marquee-copies, 2)),
+      0,
+      0
+    );
+  }
+}
+
+/* Two `prefers-reduced-motion: reduce` blocks used to sit here — a still frame
+   for the loader's indeterminate bar, and a static scrollable rail for the
+   marquee. Both are gone with the rest of the reduced-motion handling; see
+   `src/lib/motion.ts` for the decision and for how to restore them. */
 
 @layer utilities {
   .text-balance {
@@ -223,6 +474,51 @@
   }
   .text-pretty {
     text-wrap: pretty;
+  }
+
+  /* Soften a marquee or rail into its background at both ends, so items enter
+     and leave instead of being chopped off at a hard edge. */
+  .edge-fade-x {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 5%,
+      #000 95%,
+      transparent
+    );
+    mask-image: linear-gradient(to right, transparent, #000 5%, #000 95%, transparent);
+  }
+
+  /* Fades a full-bleed layer out before it reaches an edge, so a parallax
+     layer never announces where it stops. */
+  .mask-fade-y {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      #000 14%,
+      #000 82%,
+      transparent
+    );
+    mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 82%, transparent);
+  }
+
+  /* Fades the hero's grid texture out before it reaches the copy below it. */
+  .mask-fade-b {
+    -webkit-mask-image: linear-gradient(to bottom, #000 45%, transparent);
+    mask-image: linear-gradient(to bottom, #000 45%, transparent);
+  }
+
+  /* Ambient colour wash for the hero. A radial-gradient background rather than
+     a blurred element: `filter: blur()` on a 500px box is a real cost on the
+     phones this app targets, and this composites for free. */
+  .glow-primary {
+    background: radial-gradient(closest-side, hsl(var(--primary) / 0.18), transparent 72%);
+  }
+  .glow-success {
+    background: radial-gradient(closest-side, hsl(var(--success) / 0.16), transparent 72%);
+  }
+  .glow-danger {
+    background: radial-gradient(closest-side, hsl(var(--danger) / 0.14), transparent 72%);
   }
   .pb-safe {
     padding-bottom: max(env(safe-area-inset-bottom, 0px), 0px);

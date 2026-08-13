@@ -1,18 +1,42 @@
-import { m, useReducedMotion } from 'framer-motion'
+import { m, type Variants } from 'framer-motion'
+
+import { useReducedMotion } from '@/lib/motion'
 import type { ReactNode } from 'react'
 
 /**
- * Orchestrated entrance for the homepage hero.
+ * Reveal primitives.
  *
- * This is the one place Framer Motion earns its payload: a staggered reveal
- * where each child's delay derives from its position in a shared sequence.
- * CSS animation-delay can fake it, but not while staying in step with content
- * that changes length between locales — Bangla and English hero copy wrap to
- * different heights, and the spring settles correctly for both.
+ * Two families live here:
+ *
+ *  - `RevealGroup` / `RevealItem` — an orchestrated *entrance*, played once on
+ *    mount. Used by the hero.
+ *  - `Reveal` / `Stagger` / `StaggerItem` — *scroll-triggered* reveals, played
+ *    when the element crosses into the viewport. Used by every section below
+ *    the hero.
+ *
+ * This is the one place Framer Motion earns its payload: staggers where each
+ * child's delay derives from its position in a shared sequence. CSS
+ * animation-delay can fake it, but not while staying in step with content that
+ * changes length between locales — Bangla and English copy wrap to different
+ * heights, and the spring settles correctly for both.
  *
  * Long result lists deliberately do NOT use this; they stay on CSS keyframes so
  * a 60-item list costs no JS animation work on a budget phone.
+ *
+ * Every component here collapses to a plain <div> under reduced motion — no
+ * wrapper animation, no viewport observer, content present immediately. That
+ * branch is dormant on this site; see lib/motion.ts.
  */
+
+/** The house easing curve, shared with `ease-out` in tailwind.config.ts. */
+const EASE = [0.22, 1, 0.36, 1] as const
+
+/** Fire a little before the element is fully in view; never replay on scroll back. */
+const VIEWPORT = { once: true, amount: 0.2 } as const
+
+/* ------------------------------------------------------------------ */
+/* Entrance (on mount)                                                 */
+/* ------------------------------------------------------------------ */
 
 const container = {
   hidden: {},
@@ -65,3 +89,201 @@ export function RevealItem({
     </m.div>
   )
 }
+
+/* ------------------------------------------------------------------ */
+/* Scroll-triggered                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * How an element arrives. Sections pick different ones deliberately — a page
+ * where everything fades up from below reads as a template.
+ */
+export type RevealMotion =
+  | 'up'
+  | 'down'
+  | 'left' // enters from the left
+  | 'right' // enters from the right
+  | 'scale'
+  | 'blur'
+  | 'clip' // wipes open left to right
+  | 'fade'
+
+function hiddenState(motion: RevealMotion, distance: number) {
+  switch (motion) {
+    case 'up':
+      return { opacity: 0, y: distance }
+    case 'down':
+      return { opacity: 0, y: -distance }
+    case 'left':
+      return { opacity: 0, x: -distance }
+    case 'right':
+      return { opacity: 0, x: distance }
+    case 'scale':
+      return { opacity: 0, scale: 0.94, y: distance * 0.4 }
+    case 'blur':
+      // Blur is the most expensive reveal we use, so it is reserved for a
+      // single headline per section rather than every card in a grid.
+      return { opacity: 0, y: distance * 0.5, filter: 'blur(10px)' }
+    case 'clip':
+      // A wipe rather than a move. Note this clips overflow for the duration,
+      // so it belongs on text and rules — not on anything casting a shadow.
+      return { opacity: 1, clipPath: 'inset(0 100% 0 0)' }
+    case 'fade':
+      return { opacity: 0 }
+  }
+}
+
+function shownState(motion: RevealMotion) {
+  return {
+    opacity: 1,
+    x: 0,
+    y: 0,
+    scale: 1,
+    ...(motion === 'blur' ? { filter: 'blur(0px)' } : null),
+    ...(motion === 'clip' ? { clipPath: 'inset(0 0% 0 0)' } : null),
+  }
+}
+
+function buildVariants(
+  motion: RevealMotion,
+  distance: number,
+  duration: number,
+  delay: number,
+): Variants {
+  return {
+    hidden: hiddenState(motion, distance),
+    show: {
+      ...shownState(motion),
+      transition: { duration, delay, ease: EASE },
+    },
+  }
+}
+
+export function Reveal({
+  children,
+  className,
+  motion = 'up',
+  distance = 28,
+  duration = 0.65,
+  delay = 0,
+  amount = VIEWPORT.amount,
+}: {
+  children: ReactNode
+  className?: string
+  motion?: RevealMotion
+  /** Travel in px. Kept small — a long slide reads as a page that is loading. */
+  distance?: number
+  duration?: number
+  delay?: number
+  /** Fraction of the element that must be visible before it plays. */
+  amount?: number
+}) {
+  const reduced = useReducedMotion()
+
+  if (reduced) return <div className={className}>{children}</div>
+
+  return (
+    <m.div
+      className={className}
+      variants={buildVariants(motion, distance, duration, delay)}
+      initial="hidden"
+      whileInView="show"
+      viewport={{ once: true, amount }}
+    >
+      {children}
+    </m.div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Scroll-triggered stagger                                            */
+/* ------------------------------------------------------------------ */
+
+type StaggerTag = 'div' | 'ul' | 'ol' | 'nav'
+
+const STAGGER_TAGS = { div: m.div, ul: m.ul, ol: m.ol, nav: m.nav } as const
+const ITEM_TAGS = { div: m.div, li: m.li } as const
+
+const staggerContainer = (gap: number, delay: number): Variants => ({
+  hidden: {},
+  show: { transition: { staggerChildren: gap, delayChildren: delay } },
+})
+
+/**
+ * Parent of a set of `StaggerItem`s. Renders as whatever tag the layout needs
+ * so a stagger can wrap a real `<ul>` or the `.rail` flex row directly, without
+ * an extra div breaking `.rail > *`.
+ */
+export function Stagger({
+  children,
+  className,
+  as = 'div',
+  gap = 0.075,
+  delay = 0.05,
+  amount = 0.12,
+  ...rest
+}: {
+  children: ReactNode
+  className?: string
+  as?: StaggerTag
+  /** Seconds between consecutive children. */
+  gap?: number
+  delay?: number
+  amount?: number
+  'aria-label'?: string
+}) {
+  const reduced = useReducedMotion()
+  const Tag = STAGGER_TAGS[as]
+  const Plain = as
+
+  if (reduced) {
+    return (
+      <Plain className={className} {...rest}>
+        {children}
+      </Plain>
+    )
+  }
+
+  return (
+    <Tag
+      className={className}
+      variants={staggerContainer(gap, delay)}
+      initial="hidden"
+      whileInView="show"
+      viewport={{ once: true, amount }}
+      {...rest}
+    >
+      {children}
+    </Tag>
+  )
+}
+
+export function StaggerItem({
+  children,
+  className,
+  as = 'div',
+  motion = 'up',
+  distance = 22,
+  duration = 0.55,
+}: {
+  children: ReactNode
+  className?: string
+  as?: keyof typeof ITEM_TAGS
+  motion?: RevealMotion
+  distance?: number
+  duration?: number
+}) {
+  const reduced = useReducedMotion()
+  const Tag = ITEM_TAGS[as]
+  const Plain = as
+
+  if (reduced) return <Plain className={className}>{children}</Plain>
+
+  return (
+    <Tag className={className} variants={buildVariants(motion, distance, duration, 0)}>
+      {children}
+    </Tag>
+  )
+}
+
+export { EASE as REVEAL_EASE }

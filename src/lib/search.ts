@@ -63,17 +63,12 @@ function tokenize(s: string): string[] {
   )
 }
 
-/**
- * Built once at module load. ~74 listings is small enough that a linear scan
- * beats any cleverer structure, and it keeps the memory footprint near zero on
- * a budget device.
- */
-const INDEX: IndexEntry[] = BUSINESSES.map((business) => {
+function buildEntry(business: Business): IndexEntry {
   const cat = CATEGORY_MAP[business.category]
   const area = AREA_MAP[business.area]
 
   const tier = (weight: number, ...parts: string[]) => ({
-    tokens: new Set(tokenize(parts.join(' '))),
+    tokens: new Set(tokenize(parts.filter(Boolean).join(' '))),
     weight,
   })
 
@@ -90,7 +85,28 @@ const INDEX: IndexEntry[] = BUSINESSES.map((business) => {
   for (const t of tiers) for (const tok of t.tokens) allTokens.add(tok)
 
   return { business, tiers, allTokens }
-})
+}
+
+/**
+ * The live corpus.
+ *
+ * Seeded from the bundled data so the app renders before — or entirely
+ * without — a backend, and replaced by `setBusinessCorpus` once the real
+ * listings arrive. A linear scan over a few hundred entries costs nothing on a
+ * budget device, and the tiered fuzzy matching this drives is what makes a
+ * misspelt Bangla query still find the right listing.
+ *
+ * Ceiling: this is a client-side index, so the whole published corpus is held
+ * in memory. Past a few thousand listings the fetch, not the scan, becomes the
+ * problem — at that point this moves behind a Postgres RPC using the pg_trgm
+ * indexes already declared in the schema migration, and `rankBusinesses` keeps
+ * its signature.
+ */
+let INDEX: IndexEntry[] = BUSINESSES.map(buildEntry)
+
+export function setBusinessCorpus(businesses: Business[]): void {
+  INDEX = businesses.map(buildEntry)
+}
 
 /* ------------------------------------------------------------------ */
 /* Text relevance                                                      */

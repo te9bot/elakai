@@ -3,6 +3,7 @@ import { Outlet, ScrollRestoration, useLocation } from 'react-router-dom'
 import { TopNav } from './top-nav'
 import { BottomNav } from './bottom-nav'
 import { Footer } from './footer'
+import { LogoIntro } from '@/components/brand/logo-intro'
 import { useI18n } from '@/lib/i18n'
 
 export function AppShell() {
@@ -39,6 +40,11 @@ export function AppShell() {
       <Footer />
       <BottomNav />
       <ScrollRestoration />
+
+      {/* Last in the tree and fixed on top, so the page above it is fully
+          rendered underneath while it plays. It removes itself when done, and
+          only ever plays once a session. */}
+      <LogoIntro />
     </div>
   )
 }

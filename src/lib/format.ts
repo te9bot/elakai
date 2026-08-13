@@ -127,7 +127,7 @@ export function directionsHref(coords: LatLng, label?: string): string {
  * Deterministic gradient pairs used in place of photography. No network
  * request, no layout shift, and it keeps the palette coherent.
  */
-const ART_PALETTE: [string, string][] = [
+export const ART_PALETTE: [string, string][] = [
   ['#2563EB', '#60A5FA'],
   ['#0EA5E9', '#38BDF8'],
   ['#0891B2', '#22D3EE'],
@@ -140,7 +140,15 @@ const ART_PALETTE: [string, string][] = [
   ['#4F46E5', '#818CF8'],
 ]
 
-export function artGradient(seed: number): { from: string; to: string; angle: number } {
-  const [from, to] = ART_PALETTE[seed % ART_PALETTE.length]
+/**
+ * `paletteIndex` pins the gradient while `seed` still drives the contour
+ * pattern and angle, so a caller can hold a whole category to one colour
+ * without every card in it drawing the identical picture.
+ */
+export function artGradient(
+  seed: number,
+  paletteIndex?: number,
+): { from: string; to: string; angle: number } {
+  const [from, to] = ART_PALETTE[(paletteIndex ?? seed) % ART_PALETTE.length]
   return { from, to, angle: 120 + ((seed * 37) % 120) }
 }

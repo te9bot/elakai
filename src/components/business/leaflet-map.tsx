@@ -39,7 +39,7 @@ export default function LeafletMap({ coords, label }: { coords: LatLng; label: s
       iconAnchor: [17, 42],
       html: `<svg viewBox="0 0 34 44" width="34" height="44" xmlns="http://www.w3.org/2000/svg">
         <path d="M17 1C8.7 1 2 7.7 2 16c0 11 13.1 25.3 13.7 25.9a1.8 1.8 0 0 0 2.6 0C18.9 41.3 32 27 32 16 32 7.7 25.3 1 17 1Z"
-              fill="#2563EB" stroke="#fff" stroke-width="2.5"/>
+              fill="#2498EB" stroke="#fff" stroke-width="2.5"/>
         <circle cx="17" cy="16" r="5.5" fill="#fff"/>
       </svg>`,
     })

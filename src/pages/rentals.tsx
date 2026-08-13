@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Building2, SlidersHorizontal } from 'lucide-react'
+import { Building2 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -23,17 +23,40 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { RentalCard } from '@/components/cards/rental-card'
+import { RentalDetailSheet } from '@/components/rentals/rental-detail-sheet'
+import {
+  RentalSearchBar,
+  type RentalQuickFilters,
+} from '@/components/rentals/rental-search-bar'
 import { BusinessListSkeleton, EmptyState, ErrorState } from '@/components/feedback'
 import { PageHeader } from '@/components/layout/page-header'
 import { Section } from '@/components/layout/section'
-import { AREAS, CATEGORY_MAP, RENTAL_IDS } from '@/data/categories'
+import { CATEGORY_MAP, RENTAL_IDS } from '@/data/categories'
 import { RENT_RANGE } from '@/data/rentals'
-import type { CategoryId, TenantType } from '@/data/types'
+import type { CategoryId, Rental, TenantType } from '@/data/types'
 import { useGeolocation } from '@/hooks/use-geolocation'
 import { useRentals } from '@/hooks/use-queries'
 import { formatBDT } from '@/lib/format'
 import { useI18n } from '@/lib/i18n'
+import { rentalTheme } from '@/lib/rental-theme'
 import { cn } from '@/lib/utils'
+
+/* ==========================================================================
+ * Rentals.
+ *
+ * Arrangement follows Reference/Hostel: a segmented filter rail across the
+ * top, a chip row with the result count on the left and sort on the right, and
+ * a denser card grid below. The old 280px sidebar is gone — the rail holds the
+ * four filters people reach for first, and the remaining three (budget, tenant,
+ * furnishing) live in the sheet behind the rail's terminal button, so every
+ * filter still has exactly one home.
+ *
+ * Colour is the project's own throughout. Category accents come from
+ * rentalTheme(), which indexes the ART_PALETTE gradients that already drew
+ * these cards.
+ * ========================================================================== */
+
+type Sort = 'recommended' | 'price-asc' | 'price-desc' | 'newest'
 
 export default function RentalsPage() {
   const { t, L, n } = useI18n()
@@ -41,80 +64,69 @@ export default function RentalsPage() {
 
   // Seeded from ?cat= so search can hand a rental query straight to this page.
   const [params] = useSearchParams()
-  const [categories, setCategories] = useState<CategoryId[]>(() => {
+  const seededCategory = (() => {
     const c = params.get('cat') as CategoryId | null
-    return c && RENTAL_IDS.includes(c) ? [c] : []
+    return c && RENTAL_IDS.includes(c) ? c : null
+  })()
+
+  const [quick, setQuick] = useState<RentalQuickFilters>({
+    category: seededCategory,
+    bedrooms: null,
+    bathrooms: null,
+    area: null,
   })
   const [maxRent, setMaxRent] = useState<number>(RENT_RANGE.max)
-  const [bedrooms, setBedrooms] = useState<number | null>(null)
   const [tenantType, setTenantType] = useState<TenantType | null>(null)
   const [furnishedOnly, setFurnishedOnly] = useState(false)
-  const [area, setArea] = useState<string | null>(null)
-  const [sort, setSort] = useState<'recommended' | 'price-asc' | 'price-desc' | 'newest'>(
-    'recommended',
-  )
+  const [sort, setSort] = useState<Sort>('recommended')
+
   const [sheetOpen, setSheetOpen] = useState(false)
+  const [detail, setDetail] = useState<Rental | null>(null)
 
   const query = useRentals({
-    categories: categories.length ? categories : undefined,
+    categories: quick.category ? [quick.category] : undefined,
+    bedrooms: quick.bedrooms,
+    bathrooms: quick.bathrooms,
+    area: quick.area,
     maxRent,
-    bedrooms,
     tenantType,
     furnishedOnly,
-    area,
     origin,
     sort,
   })
 
   const results = query.data ?? []
-  const activeCount =
-    categories.length +
-    (maxRent < RENT_RANGE.max ? 1 : 0) +
-    (bedrooms ? 1 : 0) +
-    (tenantType ? 1 : 0) +
-    (furnishedOnly ? 1 : 0) +
-    (area ? 1 : 0)
+
+  /** Only the filters that live behind the sheet — the rail shows its own. */
+  const sheetCount =
+    (maxRent < RENT_RANGE.max ? 1 : 0) + (tenantType ? 1 : 0) + (furnishedOnly ? 1 : 0)
+
+  const totalCount =
+    sheetCount +
+    (quick.category ? 1 : 0) +
+    (quick.bedrooms ? 1 : 0) +
+    (quick.bathrooms ? 1 : 0) +
+    (quick.area ? 1 : 0)
 
   function reset() {
-    setCategories([])
+    setQuick({ category: null, bedrooms: null, bathrooms: null, area: null })
     setMaxRent(RENT_RANGE.max)
-    setBedrooms(null)
     setTenantType(null)
     setFurnishedOnly(false)
-    setArea(null)
   }
 
-  function toggleCategory(id: CategoryId) {
-    setCategories((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]))
-  }
+  /** Quick category chips under the rail — the reference's filter tab row. */
+  const categoryChips = useMemo(
+    () =>
+      RENTAL_IDS.map((id) => ({
+        id,
+        theme: rentalTheme(id as Rental['category']),
+      })),
+    [],
+  )
 
-  const filters = (
+  const sheetFilters = (
     <div className="space-y-7">
-      {/* Property type */}
-      <div>
-        <h3 className="mb-3 text-micro uppercase text-ink-subtle">{t('search.allCategories')}</h3>
-        <div className="flex flex-wrap gap-2">
-          {RENTAL_IDS.map((id) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => toggleCategory(id)}
-              aria-pressed={categories.includes(id)}
-              className={cn(
-                'inline-flex h-11 items-center gap-1.5 rounded-pill border px-4 text-meta font-semibold transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                categories.includes(id)
-                  ? 'border-primary bg-primary text-white'
-                  : 'border-line bg-surface text-ink-muted hover:bg-surface-2',
-              )}
-            >
-              <span aria-hidden="true">{CATEGORY_MAP[id].emoji}</span>
-              {L(CATEGORY_MAP[id].name)}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* Budget */}
       <div>
         <div className="mb-1 flex items-baseline justify-between">
@@ -138,37 +150,13 @@ export default function RentalsPage() {
         </div>
       </div>
 
-      {/* Bedrooms */}
-      <div>
-        <h3 className="mb-3 text-micro uppercase text-ink-subtle">{t('rentals.bedrooms')}</h3>
-        <div className="flex flex-wrap gap-2">
-          {[null, 1, 2, 3, 4].map((b) => (
-            <button
-              key={String(b)}
-              type="button"
-              onClick={() => setBedrooms(b)}
-              aria-pressed={bedrooms === b}
-              className={cn(
-                'inline-flex h-11 min-w-11 items-center justify-center rounded-pill border px-4 text-meta font-semibold transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                bedrooms === b
-                  ? 'border-primary bg-primary text-white'
-                  : 'border-line bg-surface text-ink-muted hover:bg-surface-2',
-              )}
-            >
-              {b === null ? t('rentals.anyBedrooms') : <span className="tnum">{n(b)}+</span>}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* Tenant type */}
       <div>
         <h3 className="mb-3 text-micro uppercase text-ink-subtle">{t('rentals.tenant')}</h3>
         <div className="flex flex-wrap gap-2">
           {(
             [
-              [null, t('rentals.anyBedrooms')],
+              [null, t('rentals.any')],
               ['family', t('rentals.tenant.family')],
               ['bachelor', t('rentals.tenant.bachelor')],
             ] as const
@@ -192,24 +180,6 @@ export default function RentalsPage() {
         </div>
       </div>
 
-      {/* Area */}
-      <div>
-        <h3 className="mb-3 text-micro uppercase text-ink-subtle">{t('rentals.area')}</h3>
-        <Select value={area ?? 'all'} onValueChange={(v) => setArea(v === 'all' ? null : v)}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t('search.allCategories')}</SelectItem>
-            {AREAS.map((a) => (
-              <SelectItem key={a.id} value={a.id}>
-                {L(a.name)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
       {/* aria-label is required: Radix renders a <button>, which a wrapping
           <label> does not name the way it would a native input. */}
       <label className="flex min-h-tap cursor-pointer items-center gap-3">
@@ -229,96 +199,136 @@ export default function RentalsPage() {
         icon={<Building2 className="size-7" aria-hidden="true" />}
         title={t('rentals.title')}
         description={t('rentals.sub')}
-      />
+      >
+        <RentalSearchBar
+          value={quick}
+          onChange={setQuick}
+          onOpenFilters={() => setSheetOpen(true)}
+          activeCount={sheetCount}
+          className="max-w-4xl"
+        />
+      </PageHeader>
 
       <Section>
-        <div className="lg:grid lg:grid-cols-[280px_1fr] lg:gap-8">
-          <aside className="hidden lg:block">
-            <div className="sticky top-28 rounded-card border border-line bg-surface p-5 shadow-card">
-              <div className="mb-5 flex items-center justify-between">
-                <h2 className="text-heading">{t('search.filters')}</h2>
-                {activeCount > 0 && (
-                  <Button variant="ghost" size="sm" onClick={reset}>
-                    {t('search.reset')}
-                  </Button>
-                )}
-              </div>
-              {filters}
-            </div>
-          </aside>
-
-          <div>
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <p className="text-body-sm text-ink-muted" role="status" aria-live="polite">
-                {query.isPending ? (
-                  t('state.loading')
-                ) : (
-                  <>
-                    <span className="tnum font-bold text-ink">{n(results.length)}</span>{' '}
-                    {t(results.length === 1 ? 'search.result' : 'search.results')}
-                  </>
-                )}
-              </p>
-
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="secondary"
-                  size="md"
-                  className="lg:hidden"
-                  onClick={() => setSheetOpen(true)}
-                >
-                  <SlidersHorizontal />
-                  {t('search.filters')}
-                  {activeCount > 0 && (
-                    <Badge variant="solid" size="sm" className="tnum ml-0.5">
-                      {n(activeCount)}
-                    </Badge>
-                  )}
-                </Button>
-
-                <Select value={sort} onValueChange={(v) => setSort(v as typeof sort)}>
-                  <SelectTrigger className="h-12 w-40 lg:h-10">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="recommended">{t('search.sort.best')}</SelectItem>
-                    <SelectItem value="price-asc">{t('rentals.budget')} ↑</SelectItem>
-                    <SelectItem value="price-desc">{t('rentals.budget')} ↓</SelectItem>
-                    <SelectItem value="newest">{t('home.section.latest')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {query.isError ? (
-              <ErrorState onRetry={() => query.refetch()} />
-            ) : query.isPending ? (
-              <BusinessListSkeleton count={4} />
-            ) : results.length === 0 ? (
-              <EmptyState
-                title={t('state.emptyTitle')}
-                description={t('state.emptySub')}
-                action={
-                  <Button variant="secondary" size="lg" onClick={reset}>
-                    {t('search.reset')}
-                  </Button>
-                }
-              />
-            ) : (
-              <div className="stack-fade grid gap-3 xl:grid-cols-2">
-                {results.map((r, i) => (
-                  <RentalCard
-                    key={r.rental.id}
-                    rental={r.rental}
-                    className={i < 8 ? undefined : 'animate-none'}
-                  />
-                ))}
-              </div>
+        {/* ---- Category chips ----
+            Each chip carries its category's own accent when selected, which is
+            the same colour that card's artwork and hover stack use. */}
+        <div className="rail rail-bleed sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
+          <button
+            type="button"
+            onClick={() => setQuick({ ...quick, category: null })}
+            aria-pressed={quick.category === null}
+            className={cn(
+              'inline-flex h-11 items-center rounded-pill border px-4 text-meta font-semibold transition-colors',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
+              quick.category === null
+                ? 'border-primary bg-primary text-white'
+                : 'border-line bg-surface text-ink-muted hover:bg-surface-2',
             )}
+          >
+            {t('search.allCategories')}
+          </button>
+
+          {categoryChips.map(({ id, theme }) => {
+            const active = quick.category === id
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setQuick({ ...quick, category: active ? null : id })}
+                aria-pressed={active}
+                className={cn(
+                  'inline-flex h-11 items-center gap-1.5 rounded-pill border px-4 text-meta font-semibold transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
+                  active
+                    ? 'text-white'
+                    : 'border-line bg-surface text-ink-muted hover:bg-surface-2',
+                )}
+                style={
+                  active
+                    ? { backgroundColor: theme.base, borderColor: theme.base }
+                    : undefined
+                }
+              >
+                <span aria-hidden="true">{CATEGORY_MAP[id].emoji}</span>
+                {L(CATEGORY_MAP[id].name)}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* ---- Count + sort ---- */}
+        <div className="mt-5 flex items-center justify-between gap-3">
+          <p className="text-body-sm text-ink-muted" role="status" aria-live="polite">
+            {query.isPending ? (
+              t('state.loading')
+            ) : (
+              <>
+                <span className="tnum font-bold text-ink">{n(results.length)}</span>{' '}
+                {t(results.length === 1 ? 'search.result' : 'search.results')}
+              </>
+            )}
+          </p>
+
+          <div className="flex items-center gap-2">
+            {totalCount > 0 && (
+              <Button variant="ghost" size="sm" onClick={reset}>
+                {t('search.reset')}
+                <Badge variant="neutral" size="sm" className="tnum ml-1">
+                  {n(totalCount)}
+                </Badge>
+              </Button>
+            )}
+
+            <Select value={sort} onValueChange={(v) => setSort(v as Sort)}>
+              <SelectTrigger className="h-11 w-44 rounded-pill">
+                <span className="truncate text-ink-subtle">{t('search.sort')}:</span>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="recommended">{t('search.sort.best')}</SelectItem>
+                <SelectItem value="price-asc">{t('rentals.sortPriceAsc')}</SelectItem>
+                <SelectItem value="price-desc">{t('rentals.sortPriceDesc')}</SelectItem>
+                <SelectItem value="newest">{t('home.section.latest')}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
+        </div>
+
+        {/* ---- Grid ---- */}
+        <div className="mt-4">
+          {query.isError ? (
+            <ErrorState onRetry={() => query.refetch()} />
+          ) : query.isPending ? (
+            <BusinessListSkeleton count={6} />
+          ) : results.length === 0 ? (
+            <EmptyState
+              title={t('state.emptyTitle')}
+              description={t('state.emptySub')}
+              action={
+                <Button variant="secondary" size="lg" onClick={reset}>
+                  {t('search.reset')}
+                </Button>
+              }
+            />
+          ) : (
+            /* The stacked hover layers travel 22px below each card, so the row
+               gap has to clear them or the effect clips into the next row. */
+            <div className="stack-fade grid gap-x-4 gap-y-9 sm:grid-cols-2 xl:grid-cols-3">
+              {results.map((r, i) => (
+                <RentalCard
+                  key={r.rental.id}
+                  rental={r.rental}
+                  onOpen={setDetail}
+                  className={i < 9 ? undefined : 'animate-none'}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </Section>
 
+      {/* ---- Remaining filters ---- */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent side="bottom" className="max-h-[88dvh]">
           <SheetHeader>
@@ -326,7 +336,7 @@ export default function RentalsPage() {
             <SheetCloseButton label={t('a11y.close')} />
           </SheetHeader>
 
-          <SheetBody className="pb-4 pt-2">{filters}</SheetBody>
+          <SheetBody className="pb-4 pt-2">{sheetFilters}</SheetBody>
 
           <SheetFooter>
             <Button variant="secondary" size="lg" className="flex-1" onClick={reset}>
@@ -338,6 +348,9 @@ export default function RentalsPage() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      {/* ---- Detail drawer ---- */}
+      <RentalDetailSheet rental={detail} onOpenChange={(o) => !o && setDetail(null)} />
     </>
   )
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, Info, RotateCw, SearchX, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { LogoPlaceholder } from '@/components/brand-loader'
 import { Skeleton } from '@/components/ui/skeleton'
 import { STORAGE_KEYS } from '@/lib/config'
 import { useI18n } from '@/lib/i18n'
@@ -10,12 +11,18 @@ import { cn } from '@/lib/utils'
 /* ------------------------------------------------------------------ */
 /* Skeletons                                                           */
 /* ------------------------------------------------------------------ */
+/*
+ * Every slot that will resolve into an *image* is filled with the brand mark
+ * (see components/brand-loader.tsx) instead of a grey block; only the slots
+ * that resolve into lines of text stay as bars, because a watermark inside a
+ * 12px-tall bar is illegible noise. Both share one brand-tinted sweep.
+ */
 
 export function BusinessCardSkeleton() {
   return (
     <Card className="overflow-hidden p-4">
       <div className="flex gap-4">
-        <Skeleton className="size-20 shrink-0 rounded-control sm:size-24" />
+        <LogoPlaceholder className="size-20 shrink-0 rounded-control sm:size-24" />
         <div className="min-w-0 flex-1 space-y-2.5 py-0.5">
           <Skeleton className="h-4 w-3/5" />
           <Skeleton className="h-3 w-2/5" />
@@ -46,7 +53,7 @@ export function RailSkeleton({ count = 3 }: { count?: number }) {
     <div className="rail rail-bleed" aria-hidden="true">
       {Array.from({ length: count }).map((_, i) => (
         <Card key={i} className="w-[264px] overflow-hidden p-0">
-          <Skeleton className="h-32 w-full rounded-none" />
+          <LogoPlaceholder className="h-32 w-full" />
           <div className="space-y-2.5 p-4">
             <Skeleton className="h-4 w-4/5" />
             <Skeleton className="h-3 w-1/2" />
@@ -61,7 +68,7 @@ export function RailSkeleton({ count = 3 }: { count?: number }) {
 export function DetailSkeleton() {
   return (
     <div className="space-y-5" aria-hidden="true">
-      <Skeleton className="h-56 w-full rounded-none sm:rounded-card" />
+      <LogoPlaceholder className="h-56 w-full sm:rounded-card" />
       <div className="container space-y-4">
         <Skeleton className="h-7 w-3/4" />
         <Skeleton className="h-4 w-1/3" />

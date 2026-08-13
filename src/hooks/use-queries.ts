@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import * as api from '@/lib/api'
 import type { RentalFilters } from '@/lib/api'
+import { FALLBACK_COVERAGE } from '@/data/coverage'
 import type { SearchOptions } from '@/lib/search'
 import type { CategoryId, LatLng } from '@/data/types'
 
@@ -18,6 +19,9 @@ export const keys = {
   related: (id: string) => ['related', id] as const,
   emergency: () => ['emergency'] as const,
   rentals: (f: RentalFilters) => ['rentals', f] as const,
+  stats: () => ['stats'] as const,
+  healthcare: () => ['healthcare'] as const,
+  coverage: () => ['coverage'] as const,
 }
 
 const STALE = 5 * 60 * 1000
@@ -89,6 +93,57 @@ export function useEmergency() {
     queryKey: keys.emergency(),
     queryFn: api.listEmergency,
     staleTime: Infinity,
+  })
+}
+
+/**
+ * Directory counts for the hero stat line.
+ *
+ * Seeded with the bundled counts so the line renders a real number on first
+ * paint — the hero is the LCP area, and holding it back for a COUNT round trip
+ * to animate three numbers is not a trade worth making. It reconciles to the
+ * live figures when they arrive.
+ */
+export function useStats() {
+  return useQuery({
+    queryKey: keys.stats(),
+    queryFn: api.fetchStats,
+    staleTime: STALE,
+    initialData: api.countBusinessesSync,
+  })
+}
+
+/**
+ * Loads the healthcare corpus into `lib/healthcare-search.ts`.
+ *
+ * The search, filter and lookup functions in that module are synchronous by
+ * design — they run on every keystroke — so pages await this once and then call
+ * them freely. Gate a healthcare screen on `isPending` before rendering
+ * results, or it will render the previous corpus.
+ */
+export function useHealthcare() {
+  return useQuery({
+    queryKey: keys.healthcare(),
+    queryFn: api.loadHealthcare,
+    staleTime: STALE,
+  })
+}
+
+/**
+ * What the two homepage bands cover — see `data/coverage.ts`.
+ *
+ * Seeded with the bundled lists so the hero strip is populated on first paint,
+ * then reconciled to whatever the resolver returns. The bands re-measure
+ * themselves when the answer differs, so a longer list, a shorter one, or a
+ * completely different one all arrive without a jump: the loop distance is read
+ * off the DOM after the new items render, never carried over from the old ones.
+ */
+export function useCoverage() {
+  return useQuery({
+    queryKey: keys.coverage(),
+    queryFn: api.loadCoverage,
+    staleTime: STALE,
+    initialData: FALLBACK_COVERAGE,
   })
 }
 

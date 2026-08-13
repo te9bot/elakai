@@ -6,7 +6,8 @@ import { Icon } from '@/components/icon'
 import { Available24Badge } from '@/components/status'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { EmergencyContact } from '@/data/types'
-import { directionsHref } from '@/lib/format'
+import { DEMO_MODE } from '@/lib/config'
+import { directionsHref, toTelHref } from '@/lib/format'
 import { useI18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
@@ -28,9 +29,14 @@ export function EmergencyCard({
   return (
     <div
       className={cn(
-        'flex flex-col overflow-hidden rounded-card border shadow-card transition-shadow',
-        'hover:shadow-card-hover',
-        isDanger ? 'border-danger/25 bg-danger-soft' : 'border-line bg-surface',
+        'flex flex-col overflow-hidden rounded-card border transition-shadow',
+        // Glass only on the urgent tier. The lower-priority contacts stay flat
+        // so the treatment keeps meaning something, and so a long Emergency
+        // list is not a dozen simultaneous backdrop blurs on a budget phone.
+        // Glass carries its own hover shadow — see .glass-danger in index.css.
+        isDanger
+          ? 'glass-danger'
+          : 'border-line bg-surface shadow-card hover:shadow-card-hover',
         className,
       )}
     >
@@ -65,6 +71,27 @@ export function EmergencyCard({
           >
             {L(contact.description)}
           </p>
+          {/* The number itself, not just a button that promises one. Withheld
+              in demo mode for the same reason CallButton refuses to dial:
+              every number in this build is a placeholder, and printing one in
+              tabular figures next to the word "emergency" invites someone to
+              copy it down. */}
+          {!DEMO_MODE && (
+            <p
+              className={cn(
+                'tnum mt-2 text-body font-bold',
+                isDanger ? 'text-danger-ink' : 'text-ink',
+              )}
+            >
+              <a
+                href={toTelHref(contact.phone)}
+                className="rounded transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
+              >
+                {contact.phone}
+              </a>
+            </p>
+          )}
+
           {contact.available24 && <Available24Badge className="mt-3" />}
         </div>
       </div>
@@ -118,16 +145,24 @@ export function HeroEmergency({
   return (
     <aside
       aria-labelledby="hero-emergency-title"
-      className={cn(
-        'rounded-card border border-danger/25 bg-danger-soft p-4 shadow-card sm:p-5',
-        className,
-      )}
+      // Glass earns its keep here specifically: this panel sits over the
+      // hero's grid and colour washes, so there is something behind it worth
+      // refracting. It is one element, so the blur cost is paid once.
+      className={cn('rounded-card border glass-danger p-4 sm:p-5', className)}
     >
       <h2
         id="hero-emergency-title"
         className="flex items-center gap-2 text-meta font-bold uppercase tracking-wide text-danger-ink"
       >
-        <Siren className="size-4 shrink-0 text-danger" aria-hidden="true" />
+        <span className="relative grid size-4 shrink-0 place-items-center">
+          {/* A slow beacon, not a flash. This panel has to read as urgent
+              without becoming the thing you look away from. */}
+          <span
+            aria-hidden="true"
+            className="absolute size-4 rounded-full bg-danger/25 motion-safe:animate-pulse-ring"
+          />
+          <Siren className="relative size-4 text-danger" aria-hidden="true" />
+        </span>
         {t('home.hero.emergency.title')}
       </h2>
 
@@ -141,8 +176,17 @@ export function HeroEmergency({
             </li>
           ))}
 
-        {contacts.map((contact) => (
-          <li key={contact.id} className="min-w-0">
+        {contacts.map((contact, i) => (
+          <li
+            key={contact.id}
+            // CSS keyframes rather than Framer: three fixed delays do not need a
+            // variant tree, and the global reduced-motion rule already stops it.
+            // Delays are relative to mount, not page load — these tiles replace
+            // a skeleton the moment the contacts resolve, and nobody should wait
+            // on a flourish to see a call button.
+            className="min-w-0 motion-safe:animate-fade-up"
+            style={{ animationDelay: `${i * 0.07}s` }}
+          >
             <CallButton
               phone={contact.phone}
               label={L(contact.name)}

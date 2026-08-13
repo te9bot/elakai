@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from 'react'
 import { Map as MapIcon, Navigation } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
+import { LogoPlaceholder } from '@/components/brand-loader'
 import type { LatLng } from '@/data/types'
 import { directionsHref } from '@/lib/format'
 import { useI18n } from '@/lib/i18n'
@@ -18,7 +18,7 @@ export function MapPanel({ coords, label }: { coords: LatLng; label: string }) {
   return (
     <div className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
       {shown ? (
-        <Suspense fallback={<Skeleton className="h-64 w-full rounded-none sm:h-80" />}>
+        <Suspense fallback={<LogoPlaceholder className="h-64 w-full sm:h-80" />}>
           <LeafletMap coords={coords} label={label} />
         </Suspense>
       ) : (

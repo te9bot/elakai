@@ -236,6 +236,11 @@ export const HOME_CHIP_IDS: CategoryId[] = [
   'generator-repair',
 ]
 
+// The homepage bands — "Covering" and "Everything ELAKAI covers" — used to keep
+// their lists here. They live in `data/coverage.ts` now, next to the resolver
+// that will one day fetch them, so there is exactly one place to edit when the
+// bands change.
+
 export const HEALTHCARE_IDS: CategoryId[] = [
   'hospital',
   'clinic',

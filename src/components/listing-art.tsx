@@ -13,13 +13,16 @@ export function ListingArt({
   icon,
   className,
   rounded = true,
+  paletteIndex,
 }: {
   seed: number
   icon: IconName
   className?: string
   rounded?: boolean
+  /** Pins the gradient to one palette entry; `seed` still varies the pattern. */
+  paletteIndex?: number
 }) {
-  const { from, to, angle } = artGradient(seed)
+  const { from, to, angle } = artGradient(seed, paletteIndex)
 
   return (
     <div

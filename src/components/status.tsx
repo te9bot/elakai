@@ -9,7 +9,7 @@ import type { WeeklyHours } from '@/data/types'
  * Open/closed indicator.
  *
  * Green is carried by the dot, not by a filled pill behind white text —
- * #16A34A only reaches 3.1:1 against white, which fails AA for label text.
+ * the success teal-green only reaches ~3.3:1 against white, which fails AA for label text.
  * The word itself sits on the normal surface at full ink contrast.
  */
 export function OpenStatus({
