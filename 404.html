@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="bn" class="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+    <meta name="theme-color" content="#2498EB" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0B1220" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+
+    <title>ELAKAI — Your Local Information. One Place.</title>
+    <meta
+      name="description"
+      content="Find trusted local services and emergency contacts in Kushtia. Hospitals, ambulance, pharmacies, electricians, plumbers, and rentals — all in one place."
+    />
+    <meta property="og:title" content="ELAKAI — Your Local Information. One Place." />
+    <meta
+      property="og:description"
+      content="Emergency contacts, healthcare, rentals, and verified local services in Kushtia."
+    />
+    <meta property="og:type" content="website" />
+
+    <script>
+      // Applied before first paint so the theme never flashes.
+      ;(function () {
+        try {
+          var stored = localStorage.getItem('elakai-theme')
+          var dark =
+            stored === 'dark' ||
+            (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.classList.toggle('dark', dark)
+          document.documentElement.classList.toggle('light', !dark)
+          var lang = localStorage.getItem('elakai-lang')
+          if (lang === 'bn' || lang === 'en') document.documentElement.lang = lang
+        } catch (e) {}
+      })()
+    </script>
+    <script type="module" crossorigin src="/elakai/assets/index-CxRRK7Er.js"></script>
+    <link rel="modulepreload" crossorigin href="/elakai/assets/react-vendor-CudGr3n-.js">
+    <link rel="modulepreload" crossorigin href="/elakai/assets/motion-TLxFjZ0V.js">
+    <link rel="modulepreload" crossorigin href="/elakai/assets/supabase-BqNSC7eL.js">
+    <link rel="stylesheet" crossorigin href="/elakai/assets/index-BblzPpn7.css">
+  <link rel="manifest" href="/elakai/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/elakai/registerSW.js"></script></head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
