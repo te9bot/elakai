@@ -1,0 +1,21 @@
+import{a4 as l,e as n}from"./index-emVoJWxA.js";import{j as e}from"./motion-TLxFjZ0V.js";import{a as x}from"./react-vendor-CudGr3n-.js";import"./input-Cuv9Km9q.js";/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const f=l("Pencil",[["path",{d:"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z",key:"1a8usu"}],["path",{d:"m15 5 4 4",key:"1mk7zo"}]]);/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const k=l("Plus",[["path",{d:"M5 12h14",key:"1ays0h"}],["path",{d:"M12 5v14",key:"s699le"}]]);/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const v=l("Save",[["path",{d:"M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",key:"1c8476"}],["path",{d:"M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7",key:"1ydtos"}],["path",{d:"M7 3v4a1 1 0 0 0 1 1h7",key:"t51u73"}]]);/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const j=l("Trash2",[["path",{d:"M3 6h18",key:"d0wm0j"}],["path",{d:"M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6",key:"4alrt4"}],["path",{d:"M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2",key:"v07s0e"}],["line",{x1:"10",x2:"10",y1:"11",y2:"17",key:"1uufr5"}],["line",{x1:"14",x2:"14",y1:"11",y2:"17",key:"xtxkd"}]]);function g({heading:a,description:s,children:t}){return e.jsxs("section",{className:"rounded-card border border-line bg-surface p-5 shadow-card",children:[e.jsx("h2",{className:"text-heading",children:a}),s&&e.jsx("p",{className:"mt-1 text-meta text-ink-muted",children:s}),e.jsx("div",{className:"mt-4 grid gap-4 sm:grid-cols-2",children:t})]})}function N({label:a,hint:s,error:t,required:c,wide:o,children:i}){const r=x.useId(),d=s?`${r}-hint`:void 0,m=t?`${r}-error`:void 0,u=[m,d].filter(Boolean).join(" ")||void 0;return e.jsxs("div",{className:n("min-w-0",o&&"sm:col-span-2"),children:[e.jsxs("label",{htmlFor:r,className:"block text-meta font-bold text-ink-muted",children:[a,c&&e.jsxs("span",{className:"text-danger","aria-hidden":"true",children:[" ","*"]})]}),e.jsx("div",{className:"mt-1.5",children:i({id:r,describedBy:u})}),t?e.jsx("p",{id:m,className:"mt-1.5 text-meta font-semibold text-danger",children:t}):s&&e.jsx("p",{id:d,className:"mt-1.5 text-meta text-ink-subtle",children:s})]})}function w({className:a,...s}){return e.jsx("textarea",{rows:4,className:n("flex w-full rounded-control border border-line bg-surface px-4 py-3 text-body text-ink","placeholder:text-ink-subtle","focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25","disabled:cursor-not-allowed disabled:opacity-50",a),...s})}function M({className:a,children:s,...t}){return e.jsx("select",{className:n("flex h-12 w-full rounded-control border border-line bg-surface px-3.5 text-body text-ink","focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25","disabled:cursor-not-allowed disabled:opacity-50",a),...t,children:s})}function F({label:a,hint:s,checked:t,onChange:c,disabled:o}){const i=x.useId();return e.jsx("div",{className:"sm:col-span-2",children:e.jsxs("label",{htmlFor:i,className:n("flex cursor-pointer items-start gap-3 rounded-control border border-line bg-canvas px-4 py-3","transition-colors hover:bg-surface-2",o&&"cursor-not-allowed opacity-50"),children:[e.jsx("input",{id:i,type:"checkbox",checked:t,disabled:o,onChange:r=>c(r.target.checked),className:"mt-0.5 size-5 shrink-0 accent-[hsl(var(--primary))]"}),e.jsxs("span",{className:"min-w-0",children:[e.jsx("span",{className:"block text-body-sm font-semibold text-ink",children:a}),s&&e.jsx("span",{className:"mt-0.5 block text-meta text-ink-subtle",children:s})]})]})})}export{N as F,k as P,M as S,j as T,w as a,v as b,f as c,g as d,F as e};
