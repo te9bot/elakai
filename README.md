@@ -104,6 +104,11 @@ rules, so it is the only reason `/elakai/admin` survives a refresh or a
 bookmarked deep link: Pages serves it for any path with no matching file, the
 router reads the URL, and the right screen renders.
 
+Settings → Pages → Source is set to **GitHub Actions** (`build_type: workflow`).
+That is repository state, not something the workflow re-applies on each run — a
+site left on branch publishing fails in the `deploy` job with the build already
+green, which is the confusing half of that failure mode.
+
 Pushing a file under `.github/workflows/` requires the `workflow` OAuth scope on
 whatever credential git is using. If a push is rejected for that reason, refresh
 it (`gh auth refresh -h github.com -s workflow`, or issue a personal access

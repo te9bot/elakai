@@ -82,9 +82,17 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
         run: npm run build
 
-      # Sets the Pages source to this workflow. `enablement: true` flips a
-      # repository still configured for branch-based (gh-pages) publishing over
-      # to Actions on the first successful run, so no manual switch is needed.
+      # Resolves the Pages base URL for the build.
+      #
+      # `enablement: true` only turns Pages on when it is off entirely; it will
+      # NOT convert a site already publishing from a branch. This repository was
+      # on `gh-pages` (build_type "legacy"), and the deploy job failed against it
+      # until the source was switched to Actions — done once, out of band:
+      #
+      #   PUT /repos/te9bot/elakai/pages  {"build_type":"workflow"}
+      #
+      # equivalently Settings -> Pages -> Source -> GitHub Actions. That setting
+      # is a property of the repository and persists; nothing here re-applies it.
       - uses: actions/configure-pages@v5
         with:
           enablement: true
