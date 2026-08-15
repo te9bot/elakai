@@ -19,9 +19,12 @@ import { CategoryChip } from '@/components/cards/category-tile'
 import { BusinessListSkeleton, EmptyState, ErrorState } from '@/components/feedback'
 import { CATEGORIES, CATEGORY_MAP, HOME_CHIP_IDS } from '@/data/categories'
 import type { CategoryId } from '@/data/types'
+import { ListingCard } from '@/components/listings/listing-card'
 import { useDebounce } from '@/hooks/use-debounce'
 import { useGeolocation } from '@/hooks/use-geolocation'
-import { useSearch } from '@/hooks/use-queries'
+import { useListings, useSearch } from '@/hooks/use-queries'
+import { isFromBundledDirectory } from '@/lib/listing-identity'
+import { matchListings } from '@/lib/listings'
 import { SEARCH } from '@/lib/config'
 import { useI18n } from '@/lib/i18n'
 import { matchesRentalIntent, POPULAR_QUERIES } from '@/lib/search'
@@ -72,7 +75,28 @@ export default function SearchPage() {
     limit: SEARCH.maxResults,
   })
 
+  // Admin-managed listings are a second corpus with a different shape, so they
+  // are matched separately and shown as their own block rather than being
+  // forced through a ranker built for `Business` records. See `matchListings`.
+  //
+  // Filtered to rows with no bundled counterpart, for the same reason the
+  // admin-managed block on every other page is: `results` below already
+  // contains the bundled directory, and the database holds an imported copy of
+  // every one of those records. Without this the two corpora overlapped inside
+  // one result set — 209 cards for 148 distinct places, with 60 titles listed
+  // twice. Identity is the composite the importer dedupes on, so a record is
+  // classified the same way here and there.
+  const listingsQuery = useListings()
+  const listingMatches = useMemo(
+    () =>
+      matchListings(listingsQuery.data ?? [], debounced, category).filter(
+        (l) => !isFromBundledDirectory(l),
+      ),
+    [listingsQuery.data, debounced, category],
+  )
+
   const results = query.data ?? []
+  const totalResults = results.length + listingMatches.length
   const activeFilterCount = (openOnly ? 1 : 0) + (verifiedOnly ? 1 : 0) + (category ? 1 : 0)
   const hasSearch = debounced.trim().length > 0 || category !== null
   const rentalIntent = matchesRentalIntent(debounced)
@@ -243,8 +267,8 @@ export default function SearchPage() {
                 t('state.loading')
               ) : (
                 <>
-                  <span className="tnum font-bold text-ink">{n(results.length)}</span>{' '}
-                  {t(results.length === 1 ? 'search.result' : 'search.results')}
+                  <span className="tnum font-bold text-ink">{n(totalResults)}</span>{' '}
+                  {t(totalResults === 1 ? 'search.result' : 'search.results')}
                   {debounced.trim() && (
                     <>
                       {' '}
@@ -271,11 +295,22 @@ export default function SearchPage() {
             </div>
           </div>
 
+          {/* Admin-managed listings first: they are the editorially curated set,
+              and burying them under the bundled directory would make a freshly
+              published listing look like it had not arrived. */}
+          {listingMatches.length > 0 && (
+            <div className="mb-6 grid gap-3 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              {listingMatches.map((listing) => (
+                <ListingCard key={listing.id} listing={listing} />
+              ))}
+            </div>
+          )}
+
           {query.isError ? (
             <ErrorState onRetry={() => query.refetch()} />
           ) : query.isPending ? (
             <BusinessListSkeleton count={5} />
-          ) : results.length === 0 ? (
+          ) : totalResults === 0 ? (
             hasSearch ? (
               <EmptyState
                 icon={<SearchX className="size-6" />}
@@ -321,7 +356,7 @@ export default function SearchPage() {
                 }
               />
             )
-          ) : (
+          ) : results.length === 0 ? null : (
             <div className="stack-fade grid gap-3 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
               {results.map((r, i) => (
                 <BusinessCard

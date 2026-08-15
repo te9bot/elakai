@@ -1,18 +1,26 @@
-import { useState } from 'react'
-import { Phone, ShieldAlert } from 'lucide-react'
+import { Phone } from 'lucide-react'
 import { Button, type ButtonProps } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { DEMO_MODE } from '@/lib/config'
-import { toTelHref } from '@/lib/format'
 import { useI18n } from '@/lib/i18n'
+import { normalizePhone } from '@/lib/phone'
 import { cn } from '@/lib/utils'
+
+/* ==========================================================================
+ * Tap-to-call.
+ *
+ * One rule, and no interstitial: if the record carries a dialable number the
+ * button is a `tel:` link and the device's call interface opens on the first
+ * tap. There is no confirmation dialog, no warning, and no acknowledgement
+ * step between the user and the call.
+ *
+ * A number that cannot be dialled — absent, unparseable, or one of the
+ * reserved sample numbers still sitting on unedited records — renders no
+ * button at all rather than one that opens an explanation. A control that does
+ * not do the thing it names is worse than an absent one, and on an emergency
+ * card it is worse still.
+ *
+ * Callers that need to say something in that empty space use
+ * `CallUnavailable` below; most simply let the layout close up.
+ * ========================================================================== */
 
 type CallButtonProps = Omit<ButtonProps, 'asChild' | 'onClick'> & {
   phone: string
@@ -22,15 +30,6 @@ type CallButtonProps = Omit<ButtonProps, 'asChild' | 'onClick'> & {
   children?: React.ReactNode
 }
 
-/**
- * The single place the app decides whether a phone number is dialable.
- *
- * While DEMO_MODE is on, this renders a button that explains the data is not
- * real instead of a `tel:` link. That is deliberate: every number in this build
- * is a placeholder, and someone dialling one during a real emergency would lose
- * time they cannot afford. Flip DEMO_MODE in src/lib/config.ts once numbers are
- * verified and this becomes a real link with no other change.
- */
 export function CallButton({
   phone,
   label,
@@ -42,61 +41,62 @@ export function CallButton({
   ...props
 }: CallButtonProps) {
   const { t } = useI18n()
-  const [open, setOpen] = useState(false)
+  const { e164 } = normalizePhone(phone)
 
-  const content = (
-    <>
-      {showIcon && <Phone />}
-      {children ?? t('card.call')}
-    </>
-  )
-
-  if (!DEMO_MODE) {
-    return (
-      <Button asChild variant={variant} size={size} className={className} {...props}>
-        <a href={toTelHref(phone)} aria-label={label ? `${t('card.call')} ${label}` : undefined}>
-          {content}
-        </a>
-      </Button>
-    )
-  }
+  if (!e164) return null
 
   return (
-    <>
-      <Button
-        variant={variant}
-        size={size}
-        className={cn(className)}
-        onClick={() => setOpen(true)}
-        aria-label={label ? `${t('card.call')} ${label}` : undefined}
-        {...props}
-      >
-        {content}
-      </Button>
+    <Button asChild variant={variant} size={size} className={className} {...props}>
+      <a href={`tel:${e164}`} aria-label={label ? `${t('card.call')} ${label}` : undefined}>
+        {showIcon && <Phone />}
+        {children ?? t('card.call')}
+      </a>
+    </Button>
+  )
+}
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <div className="mb-1 grid size-12 place-items-center rounded-control bg-warning-soft text-warning-ink">
-              <ShieldAlert className="size-6" />
-            </div>
-            <DialogTitle>{t('demo.dialogTitle')}</DialogTitle>
-            <DialogDescription>{t('demo.dialogBody')}</DialogDescription>
-          </DialogHeader>
+/** Whether `CallButton` would render anything for this number. */
+export function canCall(phone: string | null | undefined): boolean {
+  return normalizePhone(phone).e164 !== null
+}
 
-          <p className="mt-4 rounded-control bg-surface-2 px-4 py-3 text-center">
-            <span className="tnum text-heading text-ink-subtle line-through decoration-danger/60 decoration-2">
-              {phone}
-            </span>
-          </p>
+/**
+ * The honest empty state for a record with no dialable number.
+ *
+ * Used only where the absence would otherwise read as a missing feature — a
+ * detail page's contact block, say. Deliberately not a disabled button: a
+ * greyed-out "Call" invites repeated tapping, while a plain line of text is
+ * read once and understood.
+ */
+export function CallUnavailable({ className }: { className?: string }) {
+  return (
+    <p className={cn('text-body-sm text-ink-subtle', className)}>Phone number unavailable</p>
+  )
+}
 
-          <DialogFooter>
-            <Button block size="lg" onClick={() => setOpen(false)}>
-              {t('demo.dialogAck')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+/**
+ * A phone number as a line of text — a link when it can be dialled, plain text
+ * when it cannot.
+ *
+ * Used on detail pages, where the number is information rather than the
+ * primary action. Both states render the same normalized display string.
+ */
+export function PhoneLink({ phone, className }: { phone: string; className?: string }) {
+  const { e164, display } = normalizePhone(phone)
+  if (!display) return null
+
+  if (!e164) return <span className={cn('tnum font-bold', className)}>{display}</span>
+
+  return (
+    <a
+      href={`tel:${e164}`}
+      className={cn(
+        'tnum rounded font-bold transition-opacity hover:opacity-70',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+        className,
+      )}
+    >
+      {display}
+    </a>
   )
 }

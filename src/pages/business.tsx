@@ -5,7 +5,6 @@ import {
   Clock,
   Globe,
   MapPin,
-  Navigation,
   Phone,
   Share2,
 } from 'lucide-react'
@@ -15,7 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Rating } from '@/components/ui/rating'
 import { Separator } from '@/components/ui/separator'
-import { CallButton } from '@/components/call-button'
+import { CallButton, PhoneLink } from '@/components/call-button'
 import { Icon } from '@/components/icon'
 import { ListingArt } from '@/components/listing-art'
 import { MapPanel } from '@/components/business/map-panel'
@@ -24,7 +23,8 @@ import { DetailSkeleton, EmptyState } from '@/components/feedback'
 import { OpenStatus, VerifiedBadge } from '@/components/status'
 import { AREA_MAP, CATEGORY_MAP } from '@/data/categories'
 import { useBusiness, useRelated } from '@/hooks/use-queries'
-import { DAY_NAMES, directionsHref, formatTime } from '@/lib/format'
+import { DAY_NAMES, formatTime } from '@/lib/format'
+import { DirectionsButton } from '@/components/directions-button'
 import { useI18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
@@ -130,16 +130,14 @@ export default function BusinessPage() {
           {/* Desktop actions; mobile uses the sticky bar at the foot of the page. */}
           <div className="mt-5 hidden gap-3 lg:flex">
             <CallButton phone={business.phone} label={L(business.name)} size="lg" className="flex-1" />
-            <Button asChild variant="secondary" size="lg" className="flex-1">
-              <a
-                href={directionsHref(business.coords, L(business.name))}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <Navigation />
-                {t('card.directions')}
-              </a>
-            </Button>
+            <DirectionsButton
+              coords={business.coords}
+              coordsApprox={business.coordsApprox}
+              address={L(business.address)}
+              label={L(business.name)}
+              size="lg"
+              className="flex-1"
+            />
           </div>
         </Card>
 
@@ -175,8 +173,11 @@ export default function BusinessPage() {
                   <Phone className="mt-0.5 size-4 shrink-0 text-ink-subtle" aria-hidden="true" />
                   <div className="min-w-0">
                     <dt className="text-meta font-semibold text-ink-subtle">{t('biz.phone')}</dt>
-                    {/* Rendered as text, never a tel: link, while DEMO_MODE is on. */}
-                    <dd className="tnum text-body-sm font-bold">{business.phone}</dd>
+                    {/* A link when the number is real, plain text when it is a
+                        placeholder — decided by lib/phone.ts, not by a flag. */}
+                    <dd className="text-body-sm">
+                      <PhoneLink phone={business.phone} />
+                    </dd>
                   </div>
                 </div>
 
@@ -326,40 +327,12 @@ export default function BusinessPage() {
               </Card>
             </section>
 
-            {/* ---------------- Reviews ---------------- */}
-            <section>
-              <h2 className="mb-3 text-heading">{t('biz.reviews')}</h2>
-              {business.reviews.length === 0 ? (
-                <EmptyState title={t('biz.noReviews')} description={t('biz.noReviewsSub')} />
-              ) : (
-                <ul className="space-y-3">
-                  {business.reviews.map((r) => (
-                    <li key={r.id}>
-                      <Card className="p-5">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-3">
-                            <span
-                              className="grid size-10 shrink-0 place-items-center rounded-full bg-primary-soft text-body-sm font-bold text-primary-ink"
-                              aria-hidden="true"
-                            >
-                              {L(r.author).charAt(0)}
-                            </span>
-                            <div>
-                              <p className="text-body-sm font-bold">{L(r.author)}</p>
-                              <p className="tnum text-meta text-ink-subtle">{n(r.date)}</p>
-                            </div>
-                          </div>
-                          <Rating value={r.rating} showStars />
-                        </div>
-                        <p className="mt-3 text-body-sm leading-relaxed text-pretty text-ink-muted">
-                          {L(r.comment)}
-                        </p>
-                      </Card>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+            {/* A Customer Reviews section stood here. It is deliberately gone:
+                ELAKAI publishes no review data of its own, so the block was
+                either an invented rating or an "no reviews yet" placeholder,
+                and neither belongs on a directory people consult to find a
+                hospital. `reviews` remains on the record for whenever a real
+                source is wired up; nothing renders it. */}
           </div>
         </div>
 
@@ -385,16 +358,14 @@ export default function BusinessPage() {
             size="lg"
             className="flex-[2]"
           />
-          <Button asChild variant="secondary" size="lg" className="flex-1">
-            <a
-              href={directionsHref(business.coords, L(business.name))}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <Navigation />
-              {t('card.directions')}
-            </a>
-          </Button>
+          <DirectionsButton
+            coords={business.coords}
+            coordsApprox={business.coordsApprox}
+            address={L(business.address)}
+            label={L(business.name)}
+            size="lg"
+            className="flex-1"
+          />
         </div>
       </div>
     </div>

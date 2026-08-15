@@ -59,6 +59,8 @@ const en = {
   'home.covers.eyebrow': 'Full coverage',
   'home.covers.title': 'Everything ELAKAI covers',
   'home.covers.sub': 'Healthcare, repairs, utilities and rentals across all six upazilas.',
+  'home.section.listings': 'From the directory',
+  'home.section.listings.sub': 'Places and services added by the ELAKAI team.',
   'home.section.emergency': 'Emergency services',
   'home.section.emergency.sub': 'One tap when every second counts',
   'home.section.healthcare': 'Healthcare',
@@ -238,15 +240,6 @@ const en = {
   'rentals.furnishedNo': 'Unfurnished',
   'rentals.contact': 'Contact owner',
 
-  'demo.badge': 'Demo data',
-  'demo.banner':
-    'All listings and phone numbers on this site are placeholders for demonstration. Nothing here can be dialled.',
-  'demo.dialogTitle': 'This number is not real',
-  'demo.dialogBody':
-    'ELAKAI is running with demonstration data. This number is a placeholder and will not connect to anyone. In an actual emergency, use the numbers published by your local authority.',
-  'demo.dialogAck': 'I understand',
-  'demo.dismiss': 'Dismiss',
-
   'state.loading': 'Loading',
   'state.errorTitle': 'Something went wrong',
   'state.errorSub': 'We could not load this right now. Please try again.',
@@ -259,8 +252,6 @@ const en = {
   'footer.about': 'ELAKAI is a free public directory for the people of Kushtia.',
   'footer.rights': 'All rights reserved.',
   'footer.explore': 'Explore',
-  'footer.disclaimer':
-    'Demonstration build — listings and numbers are placeholders and must not be relied on in an emergency.',
 
   /* ---- Landing page ------------------------------------------------------
      The public front door at `/`. Copy is deliberately shorter and flatter
@@ -369,6 +360,8 @@ const bn: Record<TranslationKey, string> = {
   'home.covers.eyebrow': 'পূর্ণ পরিধি',
   'home.covers.title': 'ELAKAI যা যা কভার করে',
   'home.covers.sub': 'ছয়টি উপজেলা জুড়ে স্বাস্থ্যসেবা, মেরামত, নাগরিক সেবা ও ভাড়া।',
+  'home.section.listings': 'ডিরেক্টরি থেকে',
+  'home.section.listings.sub': 'ELAKAI টিমের যোগ করা স্থান ও সেবা।',
   'home.section.emergency': 'জরুরি সেবা',
   'home.section.emergency.sub': 'প্রতিটি সেকেন্ড যখন গুরুত্বপূর্ণ',
   'home.section.healthcare': 'স্বাস্থ্যসেবা',
@@ -548,15 +541,6 @@ const bn: Record<TranslationKey, string> = {
   'rentals.furnishedNo': 'সাজানো নয়',
   'rentals.contact': 'মালিকের সাথে যোগাযোগ',
 
-  'demo.badge': 'ডেমো তথ্য',
-  'demo.banner':
-    'এই সাইটের সব তালিকা ও ফোন নম্বর শুধুমাত্র প্রদর্শনের জন্য। এখানকার কোনো নম্বরে কল করা যাবে না।',
-  'demo.dialogTitle': 'এই নম্বরটি আসল নয়',
-  'demo.dialogBody':
-    'ELAKAI এখন ডেমো তথ্য নিয়ে চলছে। এই নম্বরটি নমুনা মাত্র, এতে কারো সাথে সংযোগ হবে না। প্রকৃত জরুরি অবস্থায় স্থানীয় কর্তৃপক্ষের প্রকাশিত নম্বর ব্যবহার করুন।',
-  'demo.dialogAck': 'আমি বুঝেছি',
-  'demo.dismiss': 'বন্ধ করুন',
-
   'state.loading': 'লোড হচ্ছে',
   'state.errorTitle': 'কিছু একটা সমস্যা হয়েছে',
   'state.errorSub': 'এখন লোড করা যায়নি। আবার চেষ্টা করুন।',
@@ -569,8 +553,6 @@ const bn: Record<TranslationKey, string> = {
   'footer.about': 'ELAKAI কুষ্টিয়ার মানুষের জন্য একটি ফ্রি পাবলিক ডিরেক্টরি।',
   'footer.rights': 'সর্বস্বত্ব সংরক্ষিত।',
   'footer.explore': 'ঘুরে দেখুন',
-  'footer.disclaimer':
-    'ডেমো সংস্করণ — তালিকা ও নম্বরগুলো নমুনা, জরুরি প্রয়োজনে এগুলোর উপর নির্ভর করবেন না।',
 
   'lp.nav.what': 'পরিচিতি',
   'lp.nav.discover': 'খোঁজা',

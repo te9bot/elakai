@@ -2,18 +2,16 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   Building2,
-  Compass,
   ExternalLink,
   Home,
   LayoutDashboard,
+  LayoutList,
   LogOut,
   Menu,
   Moon,
   Siren,
   Stethoscope,
   Sun,
-  UserRound,
-  Wrench,
   X,
 } from 'lucide-react'
 
@@ -35,27 +33,33 @@ import logo from '../../../assets/elakai-logo.png'
  * exist yet trains the person using it to distrust the navigation.
  * ========================================================================== */
 
+/**
+ * Only sections backed by a real table appear.
+ *
+ * This Supabase project contains `public.listings` and nothing else, so the
+ * per-entity screens (facilities, doctors, businesses, rentals, emergency
+ * contacts, homepage bands) have nothing to read or write. Their routes are
+ * still registered in App.tsx — the code is intact and works against a project
+ * that has those tables — but they are kept out of the sidebar, because a nav
+ * item that always errors trains the person using it to distrust the whole
+ * navigation.
+ */
 const NAV: { heading: string; items: { to: string; label: string; icon: typeof Home }[] }[] = [
   {
     heading: 'Overview',
     items: [{ to: '/admin', label: 'Dashboard', icon: LayoutDashboard }],
   },
   {
-    heading: 'Directory',
+    heading: 'Content',
     items: [
-      { to: '/admin/facilities', label: 'Healthcare facilities', icon: Stethoscope },
-      { to: '/admin/doctors', label: 'Doctors', icon: UserRound },
-      { to: '/admin/businesses', label: 'Local services', icon: Wrench },
-      { to: '/admin/rentals', label: 'Rentals', icon: Building2 },
-    ],
-  },
-  {
-    heading: 'Website',
-    items: [
-      { to: '/admin/emergency', label: 'Emergency contacts', icon: Siren },
-      // The same Compass the public section header uses, so the row and the
-      // thing it edits are recognisably the same object.
-      { to: '/admin/coverage', label: 'Homepage bands', icon: Compass },
+      { to: '/admin/listings', label: 'All listings', icon: LayoutList },
+      // Sections of the same screen rather than screens of their own. They are
+      // one table, so a separate editor per section would be the same form
+      // three times over — and these links are real filtered views, not the
+      // placeholder nav entries this file warns against.
+      { to: '/admin/listings?section=healthcare', label: 'Healthcare', icon: Stethoscope },
+      { to: '/admin/listings?section=emergency', label: 'Emergency', icon: Siren },
+      { to: '/admin/listings?section=rentals', label: 'Rentals', icon: Building2 },
     ],
   },
 ]
@@ -104,26 +108,37 @@ export function AdminShell() {
             <div key={group.heading} className="mb-5">
               <h2 className="px-2 pb-2 text-micro uppercase text-ink-subtle">{group.heading}</h2>
               <ul className="space-y-0.5">
-                {group.items.map((item) => (
-                  <li key={item.to}>
-                    <NavLink
-                      to={item.to}
-                      end={item.to === '/admin'}
-                      className={({ isActive }) =>
-                        cn(
+                {group.items.map((item) => {
+                  // NavLink's own `isActive` compares pathnames only, so the
+                  // four entries that share /admin/listings would all light up
+                  // at once. The section is what distinguishes them, so it is
+                  // what gets compared.
+                  const [path, query = ''] = item.to.split('?')
+                  const itemSection = new URLSearchParams(query).get('section') ?? ''
+                  const currentSection = new URLSearchParams(location.search).get('section') ?? ''
+                  const active =
+                    path === '/admin'
+                      ? location.pathname === '/admin'
+                      : location.pathname === path && currentSection === itemSection
+
+                  return (
+                    <li key={item.to}>
+                      <NavLink
+                        to={item.to}
+                        className={cn(
                           'flex items-center gap-3 rounded-control px-2.5 py-2.5 text-body-sm font-semibold',
                           'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                          isActive
+                          active
                             ? 'bg-primary-soft text-primary-ink'
                             : 'text-ink-muted hover:bg-surface-2 hover:text-ink',
-                        )
-                      }
-                    >
-                      <item.icon className="size-[18px] shrink-0" aria-hidden="true" />
-                      {item.label}
-                    </NavLink>
-                  </li>
-                ))}
+                        )}
+                      >
+                        <item.icon className="size-[18px] shrink-0" aria-hidden="true" />
+                        {item.label}
+                      </NavLink>
+                    </li>
+                  )
+                })}
               </ul>
             </div>
           ))}

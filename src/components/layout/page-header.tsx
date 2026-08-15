@@ -14,7 +14,10 @@ export function PageHeader({
   children?: React.ReactNode
 }) {
   return (
-    <div className="relative overflow-hidden border-b border-line bg-surface">
+    // Translucent rather than solid, so the shell's map continues behind every
+    // page header instead of stopping at the top of each one. The blur keeps
+    // the title legible over whatever part of the district sits under it.
+    <div className="relative overflow-hidden border-b border-line bg-surface/70 backdrop-blur-sm">
       <div className="surveyor-grid absolute inset-0" aria-hidden="true" />
       <div
         className={cn(

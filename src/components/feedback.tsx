@@ -1,10 +1,8 @@
-import { useEffect, useState } from 'react'
-import { AlertTriangle, Info, RotateCw, SearchX, X } from 'lucide-react'
+import { AlertTriangle, RotateCw, SearchX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { LogoPlaceholder } from '@/components/brand-loader'
 import { Skeleton } from '@/components/ui/skeleton'
-import { STORAGE_KEYS } from '@/lib/config'
 import { useI18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
@@ -144,71 +142,3 @@ export function ErrorState({ onRetry, className }: { onRetry?: () => void; class
   )
 }
 
-/* ------------------------------------------------------------------ */
-/* Demo-data banner                                                    */
-/* ------------------------------------------------------------------ */
-
-/**
- * Every number in this build is a placeholder. On the Emergency page the banner
- * is permanent and cannot be dismissed — that page is precisely where mistaking
- * demo data for real data would do harm.
- */
-export function DemoBanner({
-  persistent = false,
-  className,
-}: {
-  persistent?: boolean
-  className?: string
-}) {
-  const { t } = useI18n()
-  const [dismissed, setDismissed] = useState(true)
-
-  useEffect(() => {
-    if (persistent) {
-      setDismissed(false)
-      return
-    }
-    try {
-      setDismissed(localStorage.getItem(STORAGE_KEYS.demoBannerDismissed) === '1')
-    } catch {
-      setDismissed(false)
-    }
-  }, [persistent])
-
-  if (dismissed) return null
-
-  function dismiss() {
-    setDismissed(true)
-    try {
-      localStorage.setItem(STORAGE_KEYS.demoBannerDismissed, '1')
-    } catch {
-      /* private mode */
-    }
-  }
-
-  return (
-    <div
-      role="note"
-      className={cn(
-        'flex items-start gap-3 rounded-card border border-warning/30 bg-warning-soft px-4 py-3.5',
-        className,
-      )}
-    >
-      <Info className="mt-0.5 size-5 shrink-0 text-warning-ink" aria-hidden="true" />
-      <p className="min-w-0 flex-1 text-body-sm text-pretty text-warning-ink">
-        <span className="font-bold">{t('demo.badge')} · </span>
-        {t('demo.banner')}
-      </p>
-      {!persistent && (
-        <button
-          type="button"
-          onClick={dismiss}
-          className="-m-1 grid size-8 shrink-0 place-items-center rounded-full text-warning-ink/70 transition-colors hover:bg-warning/15 hover:text-warning-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning-ink"
-        >
-          <X className="size-4" />
-          <span className="sr-only">{t('demo.dismiss')}</span>
-        </button>
-      )}
-    </div>
-  )
-}

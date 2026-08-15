@@ -19,7 +19,8 @@ import { BusinessRailCard } from '@/components/cards/business-card'
 import { RentalCard } from '@/components/cards/rental-card'
 import { CategoryChip, CategoryTile } from '@/components/cards/category-tile'
 import { EmergencyCard } from '@/components/cards/emergency-card'
-import { DemoBanner, RailSkeleton } from '@/components/feedback'
+import { RailSkeleton } from '@/components/feedback'
+import { ListingsSection } from '@/components/listings/listings-section'
 import { InfiniteBand, InfiniteHorizontalTrack } from '@/components/infinite-track'
 import { HomeHero } from '@/components/home/hero'
 import { Parallax, ParallaxLayer, ParallaxScene } from '@/components/parallax'
@@ -87,12 +88,6 @@ export function HomePage() {
   return (
     <>
       <HomeHero isPrecise={isPrecise} />
-
-      <div className="container pt-6">
-        <Reveal motion="down" distance={16} duration={0.5}>
-          <DemoBanner />
-        </Reveal>
-      </div>
 
       {/* ---------------- Emergency ----------------
           Arrives as a unit and settles fast: this is the block people scroll
@@ -262,6 +257,17 @@ export function HomePage() {
             ))}
           </Stagger>
         </ParallaxScene>
+      </Section>
+
+      {/* Everything published from the admin panel, across every section.
+          Renders nothing until something is published, so the homepage is
+          unchanged until it has content to show. */}
+      <Section className="pt-0">
+        <ListingsSection
+          section={undefined}
+          title={t('home.section.listings')}
+          description={t('home.section.listings.sub')}
+        />
       </Section>
 
       <ClosingCta />

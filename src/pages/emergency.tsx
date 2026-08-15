@@ -1,7 +1,8 @@
 import { Siren } from 'lucide-react'
 import { EmergencyCard } from '@/components/cards/emergency-card'
-import { DemoBanner, ErrorState, RailSkeleton } from '@/components/feedback'
-import { useEmergency } from '@/hooks/use-queries'
+import { ErrorState, RailSkeleton } from '@/components/feedback'
+import { ListingsSection } from '@/components/listings/listings-section'
+import { useEmergency, useListingIdResolver } from '@/hooks/use-queries'
 import { useI18n } from '@/lib/i18n'
 
 /**
@@ -15,6 +16,14 @@ export default function EmergencyPage() {
 
   const national = data?.filter((c) => c.scope === 'national') ?? []
   const local = data?.filter((c) => c.scope === 'local') ?? []
+
+  // Each card's canonical `public.listings.id`, so its title opens the real
+  // detail page rather than a separate emergency-only view built from a second
+  // copy of the data. Every emergency contact is stored in the `emergency`
+  // section, which is the section its row is matched under.
+  const resolve = useListingIdResolver()
+  const listingId = (contact: (typeof national)[number]) =>
+    resolve('emergency', contact.name.en)
 
   return (
     <div className="pb-8">
@@ -36,12 +45,6 @@ export default function EmergencyPage() {
         </div>
       </div>
 
-      <div className="container pt-5">
-        {/* Not dismissible here — this is exactly where confusing demo data for
-            real data would cause harm. */}
-        <DemoBanner persistent />
-      </div>
-
       {isError ? (
         <div className="container pt-6">
           <ErrorState onRetry={() => refetch()} />
@@ -56,7 +59,7 @@ export default function EmergencyPage() {
             <h2 className="mb-4 text-title">{t('emergency.national')}</h2>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {national.map((c) => (
-                <EmergencyCard key={c.id} contact={c} />
+                <EmergencyCard key={c.id} contact={c} listingId={listingId(c)} />
               ))}
             </div>
           </section>
@@ -65,9 +68,19 @@ export default function EmergencyPage() {
             <h2 className="mb-4 text-title">{t('emergency.local')}</h2>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {local.map((c) => (
-                <EmergencyCard key={c.id} contact={c} />
+                <EmergencyCard key={c.id} contact={c} listingId={listingId(c)} />
               ))}
             </div>
+          </section>
+
+          {/* Published from the admin panel. Renders nothing until it has rows,
+              so this page is unchanged until somebody adds one. */}
+          <section className="container">
+            <ListingsSection
+              section="emergency"
+              title="Other emergency contacts"
+              description="Added by the ELAKAI team."
+            />
           </section>
         </>
       )}

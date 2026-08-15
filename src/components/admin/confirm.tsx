@@ -23,6 +23,12 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel = 'Confirm',
+  /**
+   * Overridable because "Cancel" is ambiguous whenever the question itself is
+   * about abandoning something — on "Discard your changes?" it is genuinely
+   * unclear which button keeps the work.
+   */
+  cancelLabel = 'Cancel',
   destructive = false,
   onConfirm,
 }: {
@@ -31,6 +37,7 @@ export function ConfirmDialog({
   title: string
   description: string
   confirmLabel?: string
+  cancelLabel?: string
   destructive?: boolean
   onConfirm: () => Promise<void> | void
 }) {
@@ -56,7 +63,7 @@ export function ConfirmDialog({
         </DialogHeader>
         <DialogFooter>
           <Button variant="secondary" onClick={() => onOpenChange(false)} disabled={busy}>
-            Cancel
+            {cancelLabel}
           </Button>
           <Button variant={destructive ? 'danger' : 'primary'} onClick={run} disabled={busy}>
             {busy && <Loader2 className="animate-spin" aria-hidden="true" />}

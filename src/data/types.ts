@@ -104,12 +104,17 @@ export type Business = {
   category: CategoryId
   group: CategoryGroup
   description: Localized
-  /** PLACEHOLDER. Never dialable while DEMO_MODE is true. See lib/config.ts. */
+  /** PLACEHOLDER. The reserved range never dials. See lib/phone.ts. */
   phone: string
   website?: string
   address: Localized
   area: AreaId
   coords: LatLng
+  /**
+   * True when `coords` is the area centre rather than this record's own
+   * position. Directions ignores such a pair — see lib/directions.ts.
+   */
+  coordsApprox?: boolean
   verified: boolean
   rating: number
   reviewCount: number
@@ -148,6 +153,8 @@ export type Rental = {
   area: AreaId
   address: Localized
   coords: LatLng
+  /** See `Business.coordsApprox`. */
+  coordsApprox?: boolean
   verified: boolean
   imageSeed: number
   availableFrom: string
@@ -162,7 +169,7 @@ export type EmergencyContact = {
   /** One or two words, for tiles too narrow to carry the full name. */
   short?: Localized
   description: Localized
-  /** PLACEHOLDER. Never dialable while DEMO_MODE is true. */
+  /** PLACEHOLDER. The reserved range never dials. See lib/phone.ts. */
   phone: string
   icon: IconName
   scope: EmergencyScope

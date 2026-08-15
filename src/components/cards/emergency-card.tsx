@@ -1,13 +1,12 @@
-import { ArrowRight, Navigation, Phone, Siren } from 'lucide-react'
+import { ArrowRight, Phone, Siren } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { Button } from '@/components/ui/button'
 import { CallButton } from '@/components/call-button'
 import { Icon } from '@/components/icon'
 import { Available24Badge } from '@/components/status'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { EmergencyContact } from '@/data/types'
-import { DEMO_MODE } from '@/lib/config'
-import { directionsHref, toTelHref } from '@/lib/format'
+import { DirectionsButton } from '@/components/directions-button'
+import { normalizePhone } from '@/lib/phone'
 import { useI18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
@@ -18,13 +17,24 @@ import { cn } from '@/lib/utils'
  */
 export function EmergencyCard({
   contact,
+  listingId,
   className,
 }: {
   contact: EmergencyContact
+  /**
+   * This contact's `public.listings.id`, when it has a row.
+   *
+   * Supplied by the page rather than looked up here — see
+   * `useListingIdResolver`. Absent for a bundled-only record, in which case the
+   * title is plain text: there is no detail page to open, and a link to one
+   * that 404s is worse than no link.
+   */
+  listingId?: number
   className?: string
 }) {
   const { t, L } = useI18n()
   const isDanger = contact.tone === 'danger'
+  const phone = normalizePhone(contact.phone)
 
   return (
     <div
@@ -55,13 +65,27 @@ export function EmergencyCard({
         </div>
 
         <div className="min-w-0 flex-1">
+          {/* The title is the link, not the whole card. Call and Directions sit
+              in the footer as siblings, so a tap on either dials or navigates
+              to the map without racing a route change — no click-propagation
+              handling needed, because the controls were never nested inside
+              the link to begin with. */}
           <h3
             className={cn(
               'text-heading text-balance',
               isDanger ? 'text-danger-ink' : 'text-ink',
             )}
           >
-            {L(contact.name)}
+            {listingId ? (
+              <Link
+                to={`/listing/${listingId}`}
+                className="rounded transition-opacity hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
+              >
+                {L(contact.name)}
+              </Link>
+            ) : (
+              L(contact.name)
+            )}
           </h3>
           <p
             className={cn(
@@ -72,11 +96,10 @@ export function EmergencyCard({
             {L(contact.description)}
           </p>
           {/* The number itself, not just a button that promises one. Withheld
-              in demo mode for the same reason CallButton refuses to dial:
-              every number in this build is a placeholder, and printing one in
-              tabular figures next to the word "emergency" invites someone to
-              copy it down. */}
-          {!DEMO_MODE && (
+              for a placeholder for the same reason CallButton refuses to dial
+              one: printing a number that reaches nobody in tabular figures
+              next to the word "emergency" invites someone to copy it down. */}
+          {phone.e164 && (
             <p
               className={cn(
                 'tnum mt-2 text-body font-bold',
@@ -84,10 +107,10 @@ export function EmergencyCard({
               )}
             >
               <a
-                href={toTelHref(contact.phone)}
+                href={`tel:${phone.e164}`}
                 className="rounded transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
               >
-                {contact.phone}
+                {phone.display}
               </a>
             </p>
           )}
@@ -107,18 +130,17 @@ export function EmergencyCard({
           {t('emergency.callNow')}
         </CallButton>
 
-        {contact.coords && (
-          <Button asChild variant="secondary" size="lg" className="flex-1">
-            <a
-              href={directionsHref(contact.coords, L(contact.name))}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <Navigation />
-              <span className="hidden sm:inline">{t('card.directions')}</span>
-            </a>
-          </Button>
-        )}
+        {/* Renders only when this contact has a real destination — a national
+            helpline has none, and a Directions button on one would be a lie. */}
+        <DirectionsButton
+          coords={contact.coords}
+          address={contact.address ? L(contact.address) : null}
+          label={L(contact.name)}
+          size="lg"
+          className="flex-1"
+        >
+          <span className="hidden sm:inline">{t('card.directions')}</span>
+        </DirectionsButton>
       </div>
     </div>
   )
@@ -130,8 +152,8 @@ export function EmergencyCard({
  * Three tiles across on a phone — the whole panel costs about 110px, which is
  * what buys it a place above the fold — and three stacked rows on desktop,
  * where it owns a column. Actions go through CallButton for the same reason
- * every other number in the app does: it is the only place DEMO_MODE is
- * enforced, and none of these numbers reach anyone.
+ * every other number in the app does: it is the one place a stored number
+ * becomes a tap-to-call action, and the one place a placeholder is refused.
  */
 export function HeroEmergency({
   contacts,

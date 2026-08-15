@@ -22,60 +22,60 @@ npm run preview    # serve the production build locally
 npm run typecheck  # types only, no emit
 ```
 
-## Backend (Supabase)
+## Architecture
 
-Optional. With no backend configured the app runs entirely on the bundled data
-in `src/data/` — that is what the live site does today. `HAS_BACKEND` in
-`src/lib/supabase.ts` is what switches the two, and `src/lib/api.ts` is the only
-module that sees the difference.
+There is no server of our own. Five pieces, and nothing between them:
 
-To connect a project:
+| Piece | What it is |
+| --- | --- |
+| GitHub Pages | The frontend. Static build of this repo, served under `/elakai/`. |
+| Supabase Auth | Admin sign-in, email + password. |
+| Supabase Postgres | `public.listings` — the content the admin panel writes. |
+| Supabase Storage | `elakai-images` — listing photos, public bucket. |
+| Supabase RLS | Authorization. The only thing that actually enforces it. |
 
-1. **Create it** at [supabase.com/dashboard](https://supabase.com/dashboard).
+The browser talks to Supabase directly with the **publishable (anon) key**,
+which ships in the bundle because that is what it is for. It grants no authority
+on its own: the RLS policies let anyone read `status = 'active'` rows and let
+exactly one user id write anything. A `service_role` key would bypass all of
+that and must never appear in `.env.local`, in CI, or anywhere Vite can inline
+it.
 
-2. **Run the SQL**, in order, in the dashboard's SQL Editor:
+### The listings table
 
-   ```
-   supabase/migrations/0001_schema.sql
-   supabase/migrations/0002_rls.sql
-   supabase/migrations/0003_coverage_bands.sql
-   supabase/seed.sql
-   ```
+`public.listings` is the whole content model — one flat table, edited by one
+form, read by every public section. `section` says which part of the site a row
+belongs to (`healthcare`, `services`, `rentals`, `utilities`, `emergency`),
+`display_order` sets the sequence, and `status` decides whether the public site
+sees it at all. Only `'active'` is ever served publicly; anything else is
+treated as hidden, so a typo hides a listing rather than publishing one.
 
-   Or, with the CLI: `npx supabase login`, `npx supabase link --project-ref <ref>`,
-   `npx supabase db push`. `db push` applies the migrations but not the seed —
-   paste `seed.sql` into the SQL Editor after it.
+`src/lib/listings.ts` holds the row shape and vocabulary, `src/lib/api.ts` the
+public reads, `src/lib/listings-admin.ts` the admin writes and the storage
+calls. Nothing else touches the table.
 
-   `seed.sql` is generated. Regenerate it from `src/data/` with
-   `node scripts/generate-seed.mjs`; never edit it by hand. It is idempotent, and
-   deliberately never overwrites `status` or `featured` — re-seeding cannot
-   republish something an editor took down.
+### The bundled dataset
 
-3. **Point the app at it.** Copy `.env.example` to `.env.local` and fill in the
-   project URL and the **anon** key (Project Settings → Data API / API Keys).
-   Both are public and ship in the bundle; that is what the anon key is for.
-   The `service_role` key and the database password must never appear in
-   `.env.local`, in CI, or anywhere Vite can inline them.
+`src/data/` still backs the directory pages — the businesses, rentals, doctors
+and emergency contacts the site shipped with. Those live in tables this project
+does not have, so `src/lib/api.ts` falls back to the bundled copies when a table
+is missing, and only when it is missing; every other error still surfaces. That
+is what lets the backend be switched on for `listings` without the rest of the
+site going dark. Admin-managed listings render alongside that content, never
+instead of it.
 
-4. **Bootstrap the first admin.** Create the user under Authentication → Users,
-   then run this in the SQL Editor — RLS blocks admins from creating the first
-   admin, so it has to come from here:
+### Connecting a different project
 
-   ```sql
-   insert into admin_users (id, email, display_name, role)
-   select id, email, 'Owner', 'owner' from auth.users where email = 'you@example.com';
-   ```
+Copy `.env.example` to `.env.local` and fill in the project URL and the
+publishable key (Project Settings → Data API / API Keys). Vite only exposes
+`VITE_`-prefixed variables to client code — `NEXT_PUBLIC_` names are inert here.
 
-   `/admin` is then reachable with that account.
-
-### What the admin panel controls
-
-Healthcare facilities, doctors, local services, rentals, emergency contacts, and
-**Homepage bands** — the "Covering" strip and "Everything ELAKAI covers", both
-rows of `category_bar_items` split on `band`. Publishing, archiving or
-reordering a chip there changes the public strip on the next load with no
-deploy: the bands measure whatever they are handed and derive the loop from it.
-See `src/components/infinite-track.tsx`.
+The project needs `public.listings`, the `elakai-images` bucket, and RLS
+policies comparing `auth.uid()` to the admin's id. Set that same id as
+`ADMIN_USER_ID` in `src/lib/config.ts`; it decides which screen renders, while
+the policies decide what the queries are actually allowed to do. Create the
+admin under Authentication → Users — there is no `admin_users` table to
+populate.
 
 ## Deployment
 
@@ -84,11 +84,21 @@ GitHub Pages serves the `gh-pages` branch, which holds a production build of
 
 ```bash
 npm run build
-cp dist/index.html dist/404.html          # SPA fallback; Pages has no rewrites
 git worktree add --orphan -b gh-pages /tmp/ghpages   # first time only
 cp -r dist/* /tmp/ghpages/
 cd /tmp/ghpages && git add -A && git commit -m "Deploy" && git push origin gh-pages
 ```
+
+Build locally, not in CI, unless the Supabase URL and publishable key are
+configured as repository variables — `.env.local` is gitignored, so a CI build
+without them produces a bundle with no backend, and an admin panel that reports
+itself unconfigured.
+
+`dist/404.html` is emitted by the build (see `githubPagesSpaFallback` in
+`vite.config.ts`) and must ship with the rest of `dist/`. Pages has no rewrite
+rules, so it is the only reason `/elakai/admin` survives a refresh or a
+bookmarked deep link: Pages serves it for any path with no matching file, the
+router reads the URL, and the right screen renders.
 
 `.github/workflows/deploy.yml` exists locally and would automate this on every
 push to `main`, but it is **not committed** — pushing a file under

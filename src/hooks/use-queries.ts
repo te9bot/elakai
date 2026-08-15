@@ -1,8 +1,10 @@
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as api from '@/lib/api'
 import type { RentalFilters } from '@/lib/api'
 import { FALLBACK_COVERAGE } from '@/data/coverage'
 import type { SearchOptions } from '@/lib/search'
+import { listingKey } from '@/lib/listings-import'
 import type { CategoryId, LatLng } from '@/data/types'
 
 /**
@@ -22,6 +24,10 @@ export const keys = {
   stats: () => ['stats'] as const,
   healthcare: () => ['healthcare'] as const,
   coverage: () => ['coverage'] as const,
+  listings: (section?: string) => ['listings', section ?? 'all'] as const,
+  // Nested under the same root as the list, so invalidating 'listings' after an
+  // admin save refreshes an open detail page too rather than leaving it stale.
+  listing: (id: string) => ['listings', 'detail', id] as const,
 }
 
 const STALE = 5 * 60 * 1000
@@ -145,6 +151,83 @@ export function useCoverage() {
     staleTime: STALE,
     initialData: FALLBACK_COVERAGE,
   })
+}
+
+/**
+ * Active listings for one section of the site.
+ *
+ * Unlike the bundled directory, this content changes whenever an admin saves,
+ * so it carries a much shorter stale time and refetches when the tab is
+ * brought back to the foreground. That is what makes "publish in the admin
+ * panel, reload the site, see it" hold without a deploy.
+ */
+export function useListings(section?: string) {
+  return useQuery({
+    queryKey: keys.listings(section),
+    queryFn: () => api.listActiveListings(section),
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: true,
+  })
+}
+
+/**
+ * One admin-published listing, for `/listing/:id`.
+ *
+ * `retry: false` because the two failure modes want opposite handling: a
+ * genuinely missing row resolves to null (not an error) and should render the
+ * not-found state immediately, while retrying a bad id just delays that by a
+ * round trip. Real transport errors still surface through `isError`.
+ */
+export function useListing(id: string | undefined) {
+  return useQuery({
+    queryKey: keys.listing(id ?? ''),
+    queryFn: () => api.getListingById(id!),
+    enabled: Boolean(id),
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: true,
+    retry: false,
+  })
+}
+
+/**
+ * Whether the directory pages are served from Postgres.
+ *
+ * Effectively constant for the life of the tab — it reflects the shape of the
+ * schema, not its contents — so it is cached indefinitely and never refetched.
+ */
+export function useDatabaseDrivenDirectory() {
+  return useQuery({
+    queryKey: ['directory-source'],
+    queryFn: api.directoryIsDatabaseDriven,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  })
+}
+
+/**
+ * Resolves a rendered record to its `public.listings.id`.
+ *
+ * Cards on the emergency page are `EmergencyContact`s, not `Listing`s — before
+ * the cutover they come from the bundled dataset, and after it they are mapped
+ * from database rows keyed on slug. Neither carries the numeric primary key, so
+ * neither can build a `/listing/:id` URL on its own.
+ *
+ * This closes that gap from the one place that does know: the listings query.
+ * Matching is by the same composite identity the importer dedupes on, so it
+ * works identically in both states and there is no second identifier to keep in
+ * step. Returns undefined when the record has no row — a bundled-only entity
+ * has no detail page, and the caller renders no link rather than a broken one.
+ */
+export function useListingIdResolver() {
+  const listings = useListings()
+
+  return useMemo(() => {
+    const byIdentity = new Map<string, number>()
+    for (const listing of listings.data ?? []) {
+      byIdentity.set(listingKey(listing.section, listing.title), listing.id)
+    }
+    return (section: string, title: string) => byIdentity.get(listingKey(section, title))
+  }, [listings.data])
 }
 
 export function useRentals(filters: RentalFilters) {

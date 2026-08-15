@@ -82,18 +82,23 @@ const plane: Variants = {
     y: t.lift,
     scale: 1 + t.grow,
     opacity: 1,
-    transition: { duration: 0.34, ease: REVEAL_EASE },
+    // Fills 0.06s–0.78s, landing just before the assembly begins at 0.80s.
+    transition: { duration: 0.72, ease: REVEAL_EASE },
   }),
   together: (t: PlaneTiming) => ({
     x: 0,
     y: 0,
     scale: 1,
     opacity: 1,
+    // Softer and heavier than a UI spring, because this one has 1.7s to cross
+    // rather than the ~0.9s the old schedule gave it. Keeping the previous
+    // stiffness and simply waiting longer would assemble the mark in the first
+    // half-second and then hold a still image for the rest of the phase.
     transition: {
       type: 'spring',
-      stiffness: 150,
-      damping: 21,
-      mass: 0.9,
+      stiffness: 62,
+      damping: 17,
+      mass: 1.2,
       delay: t.settle,
     },
   }),
@@ -104,7 +109,9 @@ const plane: Variants = {
     y: t.lift * 0.26,
     scale: 1 + t.grow * 0.2,
     opacity: 1,
-    transition: { duration: 0.75, ease: REVEAL_EASE },
+    // Fills the 2.50s–3.30s hold. Long and shallow, so the mark reads as
+    // settled rather than as still moving when the dissolve starts.
+    transition: { duration: 0.8, ease: REVEAL_EASE },
   }),
 }
 
@@ -113,14 +120,40 @@ const plane: Variants = {
  *  `animate` at all. */
 type Phase = 'apart' | 'shown' | 'together' | 'drift'
 
-/** Milliseconds from mount. The last entry is when the overlay unmounts. */
+/**
+ * The intro runs for exactly four seconds, mount to unmount.
+ *
+ *   0.00 – 0.80   planes fade up where they stand, still separated
+ *   0.80 – 2.50   they spring together into the assembled mark
+ *   2.50 – 3.30   the finished mark holds, drifting slightly
+ *   3.30 – 4.00   it scales up a touch and the overlay dissolves
+ *
+ * `TOTAL_MS` is asserted below rather than written down twice, so the phase
+ * boundaries and the advertised duration cannot drift apart.
+ *
+ * Four seconds is a long time to hold a screen, and it is only defensible
+ * because nothing is being withheld: this is an overlay over a home page that
+ * is already mounted, painted and — since it is `pointer-events-none` — already
+ * scrollable and clickable underneath. It is also once per session
+ * (`introAlreadyPlayed`), so it is not a toll paid on every navigation.
+ */
 const SCHEDULE: { at: number; phase?: Phase; done?: true }[] = [
-  { at: 40, phase: 'shown' },
-  { at: 430, phase: 'together' },
-  { at: 1240, phase: 'drift' },
-  { at: 1760, done: true },
+  // Not 0: one frame of `apart` has to paint first, or the fade has nothing to
+  // start from and the planes appear already visible.
+  { at: 60, phase: 'shown' },
+  { at: 800, phase: 'together' },
+  { at: 2500, phase: 'drift' },
+  { at: 3300, done: true },
 ]
 
+/**
+ * Reduced motion keeps its short schedule deliberately.
+ *
+ * The four seconds above buy time to watch something assemble. With every
+ * displacement multiplied by a depth of zero there is nothing to watch, so the
+ * same duration would be four seconds of a static logo between the person and
+ * the site they asked for — which is the opposite of the accommodation.
+ */
 const REDUCED_SCHEDULE: { at: number; phase?: Phase; done?: true }[] = [
   { at: 20, phase: 'shown' },
   { at: 40, phase: 'together' },
@@ -128,7 +161,19 @@ const REDUCED_SCHEDULE: { at: number; phase?: Phase; done?: true }[] = [
 ]
 
 /** How long the overlay takes to dissolve once `done` is reached. */
-const EXIT_MS = 480
+const EXIT_MS = 700
+
+/** The advertised total: the last step, plus the dissolve that follows it. */
+export const INTRO_TOTAL_MS = SCHEDULE[SCHEDULE.length - 1].at + EXIT_MS
+
+if (INTRO_TOTAL_MS !== 4000) {
+  // A loud failure in development rather than a silently 3.8s intro after
+  // someone nudges a phase boundary.
+  console.warn(
+    `[elakai] logo intro is ${INTRO_TOTAL_MS}ms, expected 4000ms. ` +
+      'Adjust SCHEDULE or EXIT_MS in components/brand/logo-intro.tsx.',
+  )
+}
 
 /* ------------------------------------------------------------------ */
 /* One plane                                                           */
@@ -157,7 +202,10 @@ function Plane({
     lift: -SEPARATION * ratio * depth,
     slide: SEPARATION * 0.52 * ratio * depth,
     grow: 0.055 * ratio * depth,
-    settle: 0.06 * ratio,
+    // Widened with the longer assembly phase: at the old 0.06 the five planes
+    // were effectively simultaneous across 1.7s, which loses the "nearest
+    // plane last" reading the separation is there to set up.
+    settle: 0.17 * ratio,
   }
 
   return (
@@ -206,28 +254,51 @@ export function LogoIntro() {
     if (!playing) return
 
     const schedule = reduced ? REDUCED_SCHEDULE : SCHEDULE
-    const timers = schedule.map((step) =>
-      setTimeout(() => {
+    const total = (schedule[schedule.length - 1]?.at ?? 0) + EXIT_MS
+    const t0 = performance.now()
+
+    /*
+     * Driven by elapsed time on an animation frame, not by a chain of
+     * setTimeouts.
+     *
+     * `setTimeout` guarantees a floor, never a ceiling: a busy main thread —
+     * React mounting the page underneath, the hero map rasterising, the first
+     * queries resolving — pushes every timer out, and the delays accumulate
+     * down the chain. Measured, that put a schedule adding up to 4000ms at
+     * 4676ms.
+     *
+     * Comparing `performance.now()` against fixed offsets instead means a late
+     * frame cannot compound: each step fires on the first frame at or after its
+     * own mark, so the total is accurate to roughly one frame regardless of
+     * what else the page is doing.
+     */
+    let frame = 0
+    let next = 0
+
+    const tick = () => {
+      const elapsed = performance.now() - t0
+
+      while (next < schedule.length && elapsed >= schedule[next].at) {
+        const step = schedule[next]
         if (step.phase) setPhase(step.phase)
         if (step.done) setLeaving(true)
-      }, step.at),
-    )
+        next++
+      }
 
-    // Marked at the end, not the start: an intro abandoned halfway through —
-    // by a reload, or by React remounting this in development — has not been
-    // seen, and should still be owed.
-    const finish = setTimeout(
-      () => {
+      if (elapsed >= total) {
+        // Marked at the end, not the start: an intro abandoned halfway through
+        // — by a reload, or by React remounting this in development — has not
+        // been seen, and should still be owed.
         markIntroPlayed()
         setPlaying(false)
-      },
-      (schedule[schedule.length - 1]?.at ?? 0) + EXIT_MS,
-    )
+        return
+      }
 
-    return () => {
-      timers.forEach(clearTimeout)
-      clearTimeout(finish)
+      frame = requestAnimationFrame(tick)
     }
+
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
   }, [playing, reduced])
 
   if (!playing) return null

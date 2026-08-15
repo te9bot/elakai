@@ -3,6 +3,7 @@ import { Outlet, ScrollRestoration, useLocation } from 'react-router-dom'
 import { TopNav } from './top-nav'
 import { BottomNav } from './bottom-nav'
 import { Footer } from './footer'
+import { KushtiaMap } from '@/components/home/kushtia-map'
 import { LogoIntro } from '@/components/brand/logo-intro'
 import { useI18n } from '@/lib/i18n'
 
@@ -18,7 +19,21 @@ export function AppShell() {
   }, [pathname])
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="relative flex min-h-dvh flex-col">
+      {/* The district, behind the whole public site.
+
+          Fixed rather than scrolled, and mounted once here rather than per
+          page: the same backdrop continues behind the hero, healthcare,
+          emergency, services, rentals, search and the footer, so moving
+          between them feels like moving across one place rather than swapping
+          wallpapers. Its layers still respond to scroll — see the parallax in
+          kushtia-map.tsx — so it reads as depth rather than as a static image.
+
+          `-z-10` puts it behind every content block. Cards and panels keep
+          their own opaque surfaces and sit on top; the map shows through the
+          gaps between them, which is the composition being aimed at. */}
+      <KushtiaMap className="fixed inset-0 -z-10 h-dvh w-full" />
+
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-control focus:bg-primary focus:px-4 focus:py-3 focus:text-body-sm focus:font-bold focus:text-white focus:shadow-lift"

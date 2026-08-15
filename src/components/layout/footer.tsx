@@ -1,5 +1,4 @@
 import { Link } from 'react-router-dom'
-import { AlertTriangle } from 'lucide-react'
 import { Logo } from './logo'
 import { useI18n } from '@/lib/i18n'
 import type { TranslationKey } from '@/lib/i18n'
@@ -44,15 +43,7 @@ export function Footer() {
           </nav>
         </div>
 
-        {/* The disclaimer is permanent in the footer — no dismiss, every page. */}
-        <div className="mt-8 flex items-start gap-2.5 rounded-control border border-warning/25 bg-warning-soft px-4 py-3">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning-ink" aria-hidden="true" />
-          <p className="text-meta leading-relaxed text-pretty text-warning-ink">
-            {t('footer.disclaimer')}
-          </p>
-        </div>
-
-        <p className="mt-6 text-meta text-ink-subtle">
+        <p className="mt-8 text-meta text-ink-subtle">
           © {n(2026)} ELAKAI. {t('footer.rights')}
         </p>
       </div>

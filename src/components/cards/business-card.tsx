@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom'
-import { ChevronRight, MapPin, Navigation } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { ChevronRight, MapPin } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Rating } from '@/components/ui/rating'
 import { CallButton } from '@/components/call-button'
@@ -8,7 +7,8 @@ import { ListingArt } from '@/components/listing-art'
 import { OpenStatus, VerifiedBadge } from '@/components/status'
 import { CATEGORY_MAP } from '@/data/categories'
 import type { ScoredBusiness } from '@/data/types'
-import { directionsHref, formatDistance } from '@/lib/format'
+import { formatDistance } from '@/lib/format'
+import { DirectionsButton } from '@/components/directions-button'
 import { useI18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
@@ -82,16 +82,14 @@ export function BusinessCard({
 
       <div className="flex gap-2 border-t border-line p-3">
         <CallButton phone={b.phone} label={L(b.name)} size="md" className="flex-1" />
-        <Button asChild variant="secondary" size="md" className="flex-1">
-          <a
-            href={directionsHref(b.coords, L(b.name))}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Navigation />
-            {t('card.directions')}
-          </a>
-        </Button>
+        <DirectionsButton
+          coords={b.coords}
+          coordsApprox={b.coordsApprox}
+          address={L(b.address)}
+          label={L(b.name)}
+          size="md"
+          className="flex-1"
+        />
       </div>
     </Card>
   )

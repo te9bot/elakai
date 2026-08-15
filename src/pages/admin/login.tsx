@@ -16,7 +16,7 @@ import logo from '../../../assets/elakai-logo.png'
  * system is being signed into.
  */
 export default function AdminLoginPage() {
-  const { status, signIn } = useAdminAuth()
+  const { status, unauthorized, signIn } = useAdminAuth()
   const location = useLocation()
 
   const [email, setEmail] = useState('')
@@ -80,13 +80,16 @@ export default function AdminLoginPage() {
           </p>
         )}
 
-        {status === 'forbidden' && (
+        {unauthorized && (
           <p
             role="alert"
             className="mt-6 flex items-start gap-2.5 rounded-control border border-danger/30 bg-danger-soft px-4 py-3 text-meta text-danger-ink"
           >
             <AlertTriangle className="mt-px size-4 shrink-0" aria-hidden="true" />
-            <span>That account exists but has no admin access.</span>
+            <span>
+              Those details are correct, but that account is not the ELAKAI
+              administrator. You have been signed out.
+            </span>
           </p>
         )}
 

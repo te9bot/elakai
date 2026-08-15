@@ -1,6 +1,5 @@
-import { Bath, BedDouble, CalendarDays, Layers, MapPin, Maximize, Navigation, Sofa } from 'lucide-react'
+import { Bath, BedDouble, CalendarDays, Layers, MapPin, Maximize, Sofa } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import {
   Sheet,
   SheetBody,
@@ -16,7 +15,8 @@ import { VerifiedBadge } from '@/components/status'
 import { AREA_MAP, CATEGORY_MAP } from '@/data/categories'
 import type { Rental } from '@/data/types'
 import { useIsDesktop } from '@/hooks/use-media-query'
-import { directionsHref, formatBDT } from '@/lib/format'
+import { formatBDT } from '@/lib/format'
+import { DirectionsButton } from '@/components/directions-button'
 import { useI18n } from '@/lib/i18n'
 import { rentalTheme } from '@/lib/rental-theme'
 
@@ -171,16 +171,15 @@ export function RentalDetailSheet({
             {rental.furnished ? t('rentals.furnishedYes') : t('rentals.furnishedNo')}
           </div>
 
-          <Button asChild variant="secondary" size="lg" block className="mt-4">
-            <a
-              href={directionsHref(rental.coords, L(rental.title))}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <Navigation />
-              {t('card.directions')}
-            </a>
-          </Button>
+          <DirectionsButton
+            coords={rental.coords}
+            coordsApprox={rental.coordsApprox}
+            address={L(rental.address)}
+            label={L(rental.title)}
+            size="lg"
+            block
+            className="mt-4"
+          />
         </SheetBody>
 
         <SheetFooter>

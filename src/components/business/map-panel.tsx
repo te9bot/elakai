@@ -1,9 +1,8 @@
 import { lazy, Suspense, useState } from 'react'
-import { Map as MapIcon, Navigation } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Map as MapIcon } from 'lucide-react'
+import { DirectionsButton } from '@/components/directions-button'
 import { LogoPlaceholder } from '@/components/brand-loader'
 import type { LatLng } from '@/data/types'
-import { directionsHref } from '@/lib/format'
 import { useI18n } from '@/lib/i18n'
 
 // Leaflet and its CSS are ~45kb gzipped and reach an external tile server.
@@ -11,7 +10,18 @@ import { useI18n } from '@/lib/i18n'
 // common "call this place" path free of both costs.
 const LeafletMap = lazy(() => import('./leaflet-map'))
 
-export function MapPanel({ coords, label }: { coords: LatLng; label: string }) {
+export function MapPanel({
+  coords,
+  coordsApprox,
+  address,
+  label,
+}: {
+  coords: LatLng
+  /** True when `coords` is an area centre — see lib/directions.ts. */
+  coordsApprox?: boolean
+  address?: string | null
+  label: string
+}) {
   const { t } = useI18n()
   const [shown, setShown] = useState(false)
 
@@ -37,14 +47,17 @@ export function MapPanel({ coords, label }: { coords: LatLng; label: string }) {
         </button>
       )}
 
-      <div className="border-t border-line p-3">
-        <Button asChild variant="secondary" size="lg" block>
-          <a href={directionsHref(coords, label)} target="_blank" rel="noopener noreferrer">
-            <Navigation />
-            {t('card.directions')}
-          </a>
-        </Button>
-      </div>
+      {/* Renders nothing when there is no real destination, leaving the map
+          preview above it as the only thing in the panel. */}
+      <DirectionsButton
+        coords={coords}
+        coordsApprox={coordsApprox}
+        address={address}
+        label={label}
+        size="lg"
+        block
+        className="rounded-none border-x-0 border-b-0 border-t border-line"
+      />
     </div>
   )
 }

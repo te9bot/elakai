@@ -98,26 +98,27 @@ export function formatBDT(amount: number): string {
   return `৳${rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',')},${last3}`
 }
 
-/** Strips formatting down to a dialable string. Only ever used when DEMO_MODE is off. */
-export function toTelHref(phone: string): string {
-  return `tel:${phone.replace(/[^\d+]/g, '')}`
-}
+/*
+ * Phone handling lives in `lib/phone.ts`.
+ *
+ * It used to be a one-line strip here, which was not enough to decide whether a
+ * number should be dialled at all — that needs to distinguish a real number from
+ * the reserved placeholder range, and to agree on one canonical stored form.
+ */
 
 /* ------------------------------------------------------------------ */
 /* Directions                                                          */
 /* ------------------------------------------------------------------ */
 
-/**
- * Deep-links to Google Maps rather than rendering a map, so the common
- * "get me there" path costs no Leaflet download at all.
+/*
+ * Directions moved to `lib/directions.ts`.
+ *
+ * The version that lived here took a coordinate pair and always produced a
+ * link, which meant a record whose `coords` had silently fallen back to its
+ * area centre got a confident Directions button pointing at the middle of the
+ * upazila. Choosing a destination needs to know whether the position is real,
+ * and to fall back to the written address when it is not.
  */
-export function directionsHref(coords: LatLng, label?: string): string {
-  const q = `${coords.lat},${coords.lng}`
-  const dest = label ? `${encodeURIComponent(label)}` : ''
-  return `https://www.google.com/maps/dir/?api=1&destination=${q}${
-    dest ? `&destination_place_id=&query=${dest}` : ''
-  }`
-}
 
 /* ------------------------------------------------------------------ */
 /* Generated artwork                                                   */

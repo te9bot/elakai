@@ -1,12 +1,10 @@
 import { BUSINESS_BY_SLUG, BUSINESSES } from '@/data/businesses'
-import { AREA_MAP } from '@/data/categories'
 import { cleanCoverage, FALLBACK_COVERAGE, type CoverageBands } from '@/data/coverage'
 import { EMERGENCY_CONTACTS } from '@/data/emergency'
 import { HEALTH_RECORDS } from '@/data/healthcare'
 import type { HealthRecord } from '@/data/healthcare-types'
 import { RENTAL_BY_SLUG, RENTALS } from '@/data/rentals'
 import type {
-  AreaId,
   Business,
   CategoryId,
   EmergencyContact,
@@ -15,23 +13,19 @@ import type {
   ScoredBusiness,
   TenantType,
 } from '@/data/types'
-import { FAKE_LATENCY_MS, KUSHTIA_CENTER } from './config'
-import {
-  SELECT,
-  toBusiness,
-  toDoctor,
-  toEmergency,
-  toFacility,
-  toRental,
-  type BusinessRow,
-  type CategoryBarRow,
-  type DoctorRow,
-  type EmergencyRow,
-  type FacilityRow,
-  type RentalRow,
-} from './db'
+import { FAKE_LATENCY_MS } from './config'
 import { haversineKm } from './format'
 import { setHealthCorpus } from './healthcare-search'
+import { LISTING_SELECT, toListing, type Listing, type ListingRow } from './listings'
+import { listingKey } from './listings-import'
+import {
+  listingToBusiness,
+  listingToEmergency,
+  listingToHealthRecord,
+  listingToRental,
+  RICH_LISTING_SELECT,
+  type RichListingRow,
+} from './listings-rich'
 import { rankBusinesses, setBusinessCorpus, type SearchOptions } from './search'
 import { HAS_BACKEND, supabase } from './supabase'
 
@@ -55,19 +49,212 @@ function delay<T>(value: T, ms = FAKE_LATENCY_MS): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
 }
 
-function areaCoords(area: AreaId): LatLng {
-  return AREA_MAP[area]?.coords ?? KUSHTIA_CENTER
+/* ------------------------------------------------------------------ */
+/* `public.listings` as the directory                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Published rows for one or more sections, as the wide shape.
+ *
+ * Returns null — distinct from an empty array — when this project has not had
+ * migration 0004 applied, so the added columns are not there to select. The
+ * callers below treat null and empty the same way, by serving the bundled
+ * dataset, but the distinction is what keeps a genuine "nothing published yet"
+ * from being mistaken for "this schema is older than the code".
+ *
+ * This is the one function that decides the site reads from Postgres. Before
+ * the directory has been imported it returns nothing and every page behaves
+ * exactly as it did; after the import each page is rendering database rows,
+ * with no per-page change and no second copy of anything.
+ */
+/**
+ * A query described as data rather than as a chain of builder calls.
+ *
+ * Declarative because the alternative — handing callers the PostgREST builder
+ * to tune — types badly: each chained method returns a new generic instance,
+ * and threading that through a callback makes the checker give up. Every filter
+ * these pages need is one of five shapes, so naming them is both simpler and
+ * fully typed.
+ */
+type ListingQuery = {
+  eq?: Record<string, unknown>
+  in?: Record<string, readonly unknown[]>
+  gte?: Record<string, number>
+  lte?: Record<string, number>
+  order?: { column: string; ascending?: boolean; nullsFirst?: boolean }[]
+}
+
+async function richListings(
+  sections: string[],
+  spec: ListingQuery = {},
+): Promise<RichListingRow[] | null> {
+  if (!HAS_BACKEND || !supabase) return null
+  // Checked up front so a project without the migration never issues the wide
+  // select at all, rather than issuing it and interpreting the failure.
+  if (!(await hasRichSchema())) return null
+
+  let q = supabase
+    .from('listings')
+    .select(RICH_LISTING_SELECT)
+    .eq('status', 'active')
+    .in('section', sections)
+
+  for (const [column, value] of Object.entries(spec.eq ?? {})) q = q.eq(column, value)
+  for (const [column, values] of Object.entries(spec.in ?? {})) q = q.in(column, values as never[])
+  for (const [column, value] of Object.entries(spec.gte ?? {})) q = q.gte(column, value)
+  for (const [column, value] of Object.entries(spec.lte ?? {})) q = q.lte(column, value)
+  for (const o of spec.order ?? []) {
+    q = q.order(o.column, { ascending: o.ascending ?? true, nullsFirst: o.nullsFirst ?? false })
+  }
+
+  const { data, error } = await q
+  if (error) throw new Error(`Failed to load listings: ${error.message}`)
+
+  return (data ?? []) as unknown as RichListingRow[]
 }
 
 /**
- * Surfaces a Postgres error as a thrown Error so TanStack Query moves the
- * section into its error state, rather than rendering an empty list that looks
- * like "there is nothing here".
+ * Whether migration 0004 has been applied, asked once and cached.
+ *
+ * Asked rather than inferred from a failure, because the failures are not
+ * reliably readable: a `head: true` count against a column that does not exist
+ * comes back as `{ message: "" }` with no code and no details, since a HEAD
+ * response has no body for PostgREST to put them in. Classifying that would
+ * mean treating every empty error as a missing column, which would silently
+ * swallow real ones.
+ *
+ * A single ordinary select answers it properly — that shape does report
+ * `42703 column listings.slug does not exist` — so every caller below branches
+ * on this instead of guessing from its own error.
  */
-function unwrap<T>(result: { data: T | null; error: { message: string } | null }, what: string): T {
-  if (result.error) throw new Error(`Failed to load ${what}: ${result.error.message}`)
-  if (result.data === null) throw new Error(`Failed to load ${what}: no data`)
-  return result.data
+let richSchemaPromise: Promise<boolean> | null = null
+
+/**
+ * Whether the public pages are rendering `public.listings` rather than the
+ * bundled arrays.
+ *
+ * Exposed so the admin-managed block on each page can stand down once the page
+ * around it is already showing those same rows through its own components. Both
+ * reading from the same table is the point; both rendering it twice is not.
+ */
+export function directoryIsDatabaseDriven(): Promise<boolean> {
+  return hasRichSchema()
+}
+
+function hasRichSchema(): Promise<boolean> {
+  const db = supabase
+  if (!HAS_BACKEND || !db) return Promise.resolve(false)
+
+  richSchemaPromise ??= (async () => {
+    const { error } = await db.from('listings').select('slug').limit(1)
+    return !error
+  })()
+
+  return richSchemaPromise
+}
+
+/* ------------------------------------------------------------------ */
+/* Database phone overlay                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The phone number `public.listings` holds for each bundled record.
+ *
+ * WHY THIS EXISTS
+ *
+ * Until migration 0004 lands, the loaders below cannot build a `Business` or an
+ * `EmergencyContact` out of the flat sixteen columns — there is no slug, no
+ * coordinates, no bilingual copy — so they serve the bundled dataset instead.
+ * That is a reasonable fallback for presentation, and a bad one for a phone
+ * number: an admin who corrects a number in the panel writes it to the
+ * database, and the site keeps rendering the bundled placeholder, which
+ * `CallButton` then correctly refuses to dial. Measured on the emergency page:
+ * fourteen services, ten of them with real numbers saved, and one Call button
+ * on the whole page.
+ *
+ * So `phone` is taken from the database even while the rest of the record is
+ * not. It is the one field where being current matters more than being
+ * complete, and the one an admin is most likely to have fixed.
+ *
+ * Matched on the same composite identity the importer dedupes on, so a record
+ * is paired here exactly as it is there. Renaming a listing in the panel breaks
+ * the pairing — that is inherent to identifying by title, and it stops
+ * mattering once 0004 gives every row a slug.
+ *
+ * Cached as the promise so the loaders share one request.
+ */
+let phoneOverlayPromise: Promise<Map<string, string>> | null = null
+
+function phoneOverlay(): Promise<Map<string, string>> {
+  const db = supabase
+  if (!HAS_BACKEND || !db) return Promise.resolve(new Map())
+
+  phoneOverlayPromise ??= (async () => {
+    const { data, error } = await db
+      .from('listings')
+      .select('section, title, phone')
+      .eq('status', 'active')
+
+    // A failure here must not take a page down: the bundled number is still
+    // shown, it simply will not dial.
+    if (error) return new Map<string, string>()
+
+    const rows = (data ?? []) as { section: string | null; title: string | null; phone: string | null }[]
+    const map = new Map<string, string>()
+    for (const row of rows) {
+      if (row.phone?.trim()) map.set(listingKey(row.section, row.title), row.phone.trim())
+    }
+    return map
+  })().catch(() => new Map<string, string>())
+
+  return phoneOverlayPromise
+}
+
+/** Replaces a bundled record's phone with the database's, where there is one. */
+function withDatabasePhone<T extends { phone: string }>(
+  record: T,
+  section: string,
+  title: string,
+  overlay: Map<string, string>,
+): T {
+  const phone = overlay.get(listingKey(section, title))
+  return phone && phone !== record.phone ? { ...record, phone } : record
+}
+
+/** True when the database has content for this domain and should be believed. */
+function hasRows(rows: unknown[] | null): rows is unknown[] {
+  return rows !== null && rows.length > 0
+}
+
+/**
+ * Whether a section has any published rows at all, cached per session.
+ *
+ * Needed because an empty result from a *filtered* query is ambiguous: it means
+ * either "the filters excluded everything", which is a real answer to show, or
+ * "this section was never imported", which should fall back to the bundled set.
+ * A HEAD count answers that without transferring rows, and the answer cannot
+ * change often enough to be worth asking twice.
+ */
+const sectionPopulated = new Map<string, Promise<boolean>>()
+
+function sectionHasRows(section: string): Promise<boolean> {
+  const db = supabase
+  if (!HAS_BACKEND || !db) return Promise.resolve(false)
+
+  const cached = sectionPopulated.get(section)
+  if (cached) return cached
+
+  const pending = (async () => {
+    const { count, error } = await db
+      .from('listings')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'active')
+      .eq('section', section)
+    return error ? false : (count ?? 0) > 0
+  })()
+
+  sectionPopulated.set(section, pending)
+  return pending
 }
 
 /* ------------------------------------------------------------------ */
@@ -84,28 +271,39 @@ function unwrap<T>(result: { data: T | null; error: { message: string } | null }
  */
 let corpusPromise: Promise<Business[]> | null = null
 
+/**
+ * The sections whose rows are directory entries.
+ *
+ * Rentals and emergency contacts are excluded: both have their own record
+ * shape, their own page and their own loader below, and folding them into the
+ * business corpus would put a flat for rent into the results for "pharmacy".
+ */
+const DIRECTORY_SECTIONS = ['services', 'utilities', 'healthcare']
+
 async function loadCorpus(): Promise<Business[]> {
   if (!HAS_BACKEND || !supabase) return BUSINESSES
 
   corpusPromise ??= (async () => {
-    const rows = unwrap(
-      await supabase
-        .from('businesses')
-        .select(SELECT.business)
-        .eq('status', 'published')
-        .order('updated_at', { ascending: false }),
-      'listings',
-    ) as unknown as BusinessRow[]
+    const rows = await richListings(DIRECTORY_SECTIONS, {
+      order: [{ column: 'display_order' }, { column: 'id' }],
+    })
+    if (hasRows(rows)) return (rows as RichListingRow[]).map(listingToBusiness)
 
-    const businesses = rows.map((r) => toBusiness(r, areaCoords))
-    setBusinessCorpus(businesses)
-    return businesses
-  })().catch((error) => {
-    // A failed load must not poison the cache — the next attempt should retry
-    // rather than replay the rejection forever.
-    corpusPromise = null
-    throw error
-  })
+    // A business's section is its category group, which is what the importer
+    // wrote and therefore what the overlay is keyed on.
+    const overlay = await phoneOverlay()
+    return BUSINESSES.map((b) => withDatabasePhone(b, b.group, b.name.en, overlay))
+  })()
+    .then((businesses) => {
+      setBusinessCorpus(businesses)
+      return businesses
+    })
+    .catch((error) => {
+      // A failed load must not poison the cache — the next attempt should retry
+      // rather than replay the rejection forever.
+      corpusPromise = null
+      throw error
+    })
 
   return corpusPromise
 }
@@ -124,19 +322,19 @@ export async function searchBusinesses(options: SearchOptions): Promise<ScoredBu
   return HAS_BACKEND ? rankBusinesses(options) : delay(rankBusinesses(options))
 }
 
+/**
+ * One directory entry by slug.
+ *
+ * Resolved from the corpus rather than by its own query. The corpus is loaded
+ * once and shared, so this costs nothing extra, and — more to the point — it
+ * guarantees the detail page and the list agree: a record reachable from a card
+ * is reachable at its URL, because both read the same array.
+ */
 export async function getBusinessBySlug(slug: string): Promise<Business | null> {
   if (!HAS_BACKEND || !supabase) return delay(BUSINESS_BY_SLUG[slug] ?? null)
 
-  const { data, error } = await supabase
-    .from('businesses')
-    .select(SELECT.businessDetail)
-    .eq('slug', slug)
-    .eq('status', 'published')
-    .maybeSingle()
-
-  if (error) throw new Error(`Failed to load listing: ${error.message}`)
-  if (!data) return null
-  return toBusiness(data as unknown as BusinessRow, areaCoords)
+  const corpus = await loadCorpus()
+  return corpus.find((b) => b.slug === slug) ?? null
 }
 
 export async function listByCategory(
@@ -194,19 +392,34 @@ export type DirectoryStats = { total: number; verified: number; always: number }
 export async function fetchStats(): Promise<DirectoryStats> {
   if (!HAS_BACKEND || !supabase) return delay(countBusinessesSync())
 
+  // `verified` and `always_open` are columns migration 0004 adds, so without it
+  // there is nothing here to count — and a failed HEAD count cannot be told
+  // apart from any other error. See `hasRichSchema`.
+  if (!(await hasRichSchema())) return countBusinessesSync()
+
   // Bound to a local: the narrowing above does not survive into the closure.
   const db = supabase
-  const published = () =>
-    db.from('businesses').select('id', { count: 'exact', head: true }).eq('status', 'published')
+
+  const active = () =>
+    db
+      .from('listings')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'active')
+      .in('section', DIRECTORY_SECTIONS)
 
   const [total, verified, always] = await Promise.all([
-    published(),
-    published().eq('verified', true),
-    published().eq('always_open', true),
+    active(),
+    active().eq('verified', true),
+    active().eq('always_open', true),
   ])
 
-  const first = total.error ?? verified.error ?? always.error
-  if (first) throw new Error(`Failed to count listings: ${first.message}`)
+  const failed = total.error ?? verified.error ?? always.error
+  if (failed) throw new Error(`Failed to count listings: ${failed.message}`)
+
+  // Nothing imported yet: report the bundled counts, which is what the rest of
+  // the page is rendering. A zeroed stat line under a populated page reads as
+  // a bug rather than as an empty directory.
+  if ((total.count ?? 0) === 0) return countBusinessesSync()
 
   return {
     total: total.count ?? 0,
@@ -237,16 +450,20 @@ export function countBusinessesSync(): DirectoryStats {
 export async function listEmergency(): Promise<EmergencyContact[]> {
   if (!HAS_BACKEND || !supabase) return delay(EMERGENCY_CONTACTS)
 
-  const rows = unwrap(
-    await supabase
-      .from('emergency_contacts')
-      .select(SELECT.emergency)
-      .eq('status', 'published')
-      .order('priority', { ascending: true }),
-    'emergency contacts',
-  ) as unknown as EmergencyRow[]
+  // Ordered by priority: on this page the sequence is the safety feature, so
+  // the most urgent service has to stay at the top whatever else changes.
+  const rows = await richListings(['emergency'], {
+    order: [{ column: 'priority' }, { column: 'display_order' }],
+  })
 
-  return rows.map(toEmergency)
+  if (hasRows(rows)) return (rows as RichListingRow[]).map(listingToEmergency)
+
+  // Bundled presentation, database numbers — see `phoneOverlay`. Every
+  // emergency contact is stored under the `emergency` section.
+  const overlay = await phoneOverlay()
+  return EMERGENCY_CONTACTS.map((c) =>
+    withDatabasePhone(c, 'emergency', c.name.en, overlay),
+  )
 }
 
 /* ------------------------------------------------------------------ */
@@ -256,46 +473,25 @@ export async function listEmergency(): Promise<EmergencyContact[]> {
 /**
  * What the two homepage strips say the directory covers.
  *
- * One query for both bands — they are one table, split on `band` — because two
- * queries would let the page render with a new "Covering" and a stale
- * "Everything ELAKAI covers", and the pair is meant to read as one statement.
+ * These are category chips drawn from the app's own catalogue, not user
+ * content: `CATEGORY_MAP` is what supplies each chip's name, emoji and icon,
+ * so a chip only means anything if this build already knows the id. That makes
+ * the pair static content by the test in §11 of the brief — there is nothing
+ * here for an admin to edit that is not already a code-level category — and it
+ * is served from the bundled lists rather than from a table.
  *
- * Rows are filtered to published and ordered by `sort_order`, which is exactly
- * what an editor drags around in the admin list. Nothing downstream knows or
- * cares how many come back: the bands measure the rendered result and derive
- * the loop from it, so publishing a chip, archiving one or reordering the set
- * changes the strip on the next fetch with no deploy and no animation change.
- * See `components/infinite-track.tsx`.
+ * `cleanCoverage` still runs, so an id the catalogue has since dropped falls
+ * out of the strip instead of rendering as a blank chip.
  *
- * A category the local catalogue does not know about is dropped rather than
- * rendered as a blank chip — `CATEGORY_MAP` is what supplies the name, emoji
- * and icon, so a row pointing at an id this build has never heard of has
- * nothing to draw.
+ * (This previously queried a `category_bar_items` table that this project does
+ * not have and never did, so every load spent a round trip to be told so and
+ * then used exactly these values.)
  */
 export async function loadCoverage(): Promise<CoverageBands> {
-  if (!HAS_BACKEND || !supabase) return delay(FALLBACK_COVERAGE)
-
-  const rows = unwrap(
-    await supabase
-      .from('category_bar_items')
-      .select(SELECT.categoryBar)
-      .eq('status', 'published')
-      .order('band', { ascending: true })
-      .order('sort_order', { ascending: true }),
-    'coverage bands',
-  ) as unknown as CategoryBarRow[]
-
-  const bands: CoverageBands = { covering: [], covers: [] }
-  for (const row of rows) {
-    if (row.band === 'covering' || row.band === 'covers') bands[row.band].push(row.category_id)
-  }
-
-  // An empty table is a misconfigured project, not an editorial decision to
-  // have no homepage strips — fall back rather than paint two empty sections.
-  return {
-    covering: cleanCoverage(bands.covering.length ? bands.covering : FALLBACK_COVERAGE.covering),
-    covers: cleanCoverage(bands.covers.length ? bands.covers : FALLBACK_COVERAGE.covers),
-  }
+  return delay({
+    covering: cleanCoverage(FALLBACK_COVERAGE.covering),
+    covers: cleanCoverage(FALLBACK_COVERAGE.covers),
+  })
 }
 
 /* ------------------------------------------------------------------ */
@@ -324,52 +520,62 @@ export type ScoredRental = { rental: Rental; distanceKm: number }
  * listings than fit in a phone's memory.
  */
 export async function listRentals(filters: RentalFilters = {}): Promise<ScoredRental[]> {
-  const {
-    categories,
-    maxRent,
-    minRent,
-    bedrooms,
-    bathrooms,
-    tenantType,
-    furnishedOnly,
-    area,
-    origin,
-    sort = 'recommended',
-  } = filters
-
   if (!HAS_BACKEND || !supabase) return delay(filterRentalsLocally(filters))
 
-  let q = supabase.from('rentals').select(SELECT.rental).eq('status', 'published')
+  const {
+    categories, maxRent, minRent, bedrooms, bathrooms,
+    tenantType, furnishedOnly, area, origin, sort = 'recommended',
+  } = filters
 
-  if (categories?.length) q = q.in('category', categories)
-  if (minRent !== undefined) q = q.gte('rent', minRent)
-  if (maxRent !== undefined) q = q.lte('rent', maxRent)
-  if (bedrooms != null && bedrooms > 0) q = q.gte('bedrooms', bedrooms)
-  if (bathrooms != null && bathrooms > 0) q = q.gte('bathrooms', bathrooms)
+  // Every predicate runs in Postgres against the columns migration 0004 added
+  // and indexed, so a filtered rentals page fetches only what it renders —
+  // which is what keeps the page usable once there are more listings than fit
+  // in a phone's memory.
+  const spec: ListingQuery = { eq: {}, in: {}, gte: {}, lte: {} }
+  if (categories?.length) spec.in!.category = categories
   // A "family" filter still surfaces listings open to anyone.
-  if (tenantType) q = q.in('tenant_type', [tenantType, 'any'])
-  if (furnishedOnly) q = q.eq('furnished', true)
-  if (area) q = q.eq('area_id', area)
+  if (tenantType) spec.in!.tenant_type = [tenantType, 'any']
+  if (minRent !== undefined) spec.gte!.rent = minRent
+  if (maxRent !== undefined) spec.lte!.rent = maxRent
+  if (bedrooms != null && bedrooms > 0) spec.gte!.bedrooms = bedrooms
+  if (bathrooms != null && bathrooms > 0) spec.gte!.bathrooms = bathrooms
+  if (furnishedOnly) spec.eq!.furnished = true
+  if (area) spec.eq!.area_id = area
 
-  switch (sort) {
-    case 'price-asc':
-      q = q.order('rent', { ascending: true })
-      break
-    case 'price-desc':
-      q = q.order('rent', { ascending: false })
-      break
-    case 'newest':
-      q = q.order('updated_at', { ascending: false })
-      break
-    default:
-      q = q.order('verified', { ascending: false }).order('updated_at', { ascending: false })
+  spec.order =
+    sort === 'price-asc'
+      ? [{ column: 'rent', ascending: true }]
+      : sort === 'price-desc'
+        ? [{ column: 'rent', ascending: false }]
+        : sort === 'newest'
+          ? [{ column: 'updated_at', ascending: false }]
+          : [
+              { column: 'verified', ascending: false },
+              { column: 'updated_at', ascending: false },
+            ]
+
+  const rows = await richListings(['rentals'], spec)
+
+  // Null means the rich schema is absent. Empty is ambiguous, so it is only
+  // treated as a real "nothing matches" once the section is known to hold rows.
+  if (rows === null) return bundledRentals(filters)
+  if (rows.length === 0 && !(await sectionHasRows('rentals'))) {
+    return bundledRentals(filters)
   }
 
-  const rows = unwrap(await q, 'rentals') as unknown as RentalRow[]
   return rows.map((r) => {
-    const rental = toRental(r, areaCoords)
+    const rental = listingToRental(r)
     return { rental, distanceKm: origin ? haversineKm(origin, rental.coords) : 0 }
   })
+}
+
+/** Bundled rentals with database numbers applied. */
+async function bundledRentals(filters: RentalFilters): Promise<ScoredRental[]> {
+  const overlay = await phoneOverlay()
+  return filterRentalsLocally(filters).map((scored) => ({
+    ...scored,
+    rental: withDatabasePhone(scored.rental, 'rentals', scored.rental.title.en, overlay),
+  }))
 }
 
 /** The same filters applied in memory, for the no-backend fallback. */
@@ -434,42 +640,52 @@ export async function loadHealthcare(): Promise<HealthRecord[]> {
   if (!HAS_BACKEND || !supabase) return delay(HEALTH_RECORDS)
 
   healthPromise ??= (async () => {
-    const [facilities, doctors] = await Promise.all([
-      supabase.from('facilities').select(SELECT.facility).eq('status', 'published'),
-      supabase.from('doctors').select(SELECT.doctor).eq('status', 'published'),
-    ])
-
-    const rows = {
-      facilities: unwrap(facilities, 'healthcare facilities') as unknown as FacilityRow[],
-      doctors: unwrap(doctors, 'doctors') as unknown as DoctorRow[],
+    const rows = await richListings(['healthcare'], {
+      order: [{ column: 'display_order' }, { column: 'id' }],
+    })
+    if (!hasRows(rows)) {
+      // Healthcare contacts nest the number inside `contact`, so the shared
+      // helper does not fit; the identity and the intent are the same.
+      const overlay = await phoneOverlay()
+      return HEALTH_RECORDS.map((r) => {
+        const phone = overlay.get(listingKey('healthcare', r.name.en))
+        if (!phone || phone === r.contact?.phone) return r
+        return { ...r, contact: { ...(r.contact ?? {}), phone } }
+      })
     }
 
-    const records: HealthRecord[] = [
-      ...rows.facilities.map(toFacility),
-      ...rows.doctors.map(toDoctor),
-    ]
+    const records = (rows as RichListingRow[]).map(listingToHealthRecord)
 
-    // A facility's doctor list is the mirror of `doctor_facilities`, which only
-    // the doctor side carries — reconstruct it so `doctorsAt()` resolves both
-    // directions exactly as it does against the bundled data.
+    // A facility's doctor list is the mirror of each doctor's `facility_ids`.
+    // Rebuilding it from that one side means the two directions cannot
+    // disagree: an admin editing a doctor's facilities updates both, and a
+    // facility whose `doctor_ids` was never filled in still resolves.
     const byFacility = new Map<string, string[]>()
-    for (const d of rows.doctors) {
-      for (const link of d.doctor_facilities ?? []) {
-        const list = byFacility.get(link.facility_id) ?? []
-        list.push(d.id)
-        byFacility.set(link.facility_id, list)
+    for (const r of records) {
+      if (r.kind !== 'doctor') continue
+      for (const facilitySlug of r.facilityIds ?? []) {
+        const list = byFacility.get(facilitySlug) ?? []
+        list.push(r.id)
+        byFacility.set(facilitySlug, list)
       }
     }
     for (const r of records) {
-      if (r.kind === 'facility') r.doctorIds = byFacility.get(r.id) ?? undefined
+      if (r.kind === 'facility') {
+        const derived = byFacility.get(r.id)
+        if (derived?.length) r.doctorIds = derived
+      }
     }
 
-    setHealthCorpus(records)
     return records
-  })().catch((error) => {
-    healthPromise = null
-    throw error
-  })
+  })()
+    .then((records) => {
+      setHealthCorpus(records)
+      return records
+    })
+    .catch((error) => {
+      healthPromise = null
+      throw error
+    })
 
   return healthPromise
 }
@@ -481,14 +697,96 @@ export function invalidateHealthcare(): void {
 export async function getRentalBySlug(slug: string): Promise<Rental | null> {
   if (!HAS_BACKEND || !supabase) return delay(RENTAL_BY_SLUG[slug] ?? null)
 
+  const rows = await richListings(['rentals'], { eq: { slug } })
+  if (hasRows(rows)) return listingToRental((rows as RichListingRow[])[0])
+
+  // No rich schema, or nothing published under that slug — the bundled record
+  // is the only remaining place it could be.
+  return RENTAL_BY_SLUG[slug] ?? null
+}
+
+/* ------------------------------------------------------------------ */
+/* Listings — the admin-managed content                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Everything published from the admin panel.
+ *
+ * This is the one part of the site whose content is not bundled: `listings` is
+ * the table the admin panel writes, so there is nothing sensible to fall back
+ * to when it cannot be read. An unconfigured build returns an empty list and
+ * the sections that render it simply do not appear, which is correct — no
+ * backend means nothing has been published yet.
+ *
+ * Two rules are enforced here rather than at each call site, because getting
+ * either wrong is a content leak rather than a layout bug:
+ *
+ *   - only `status = 'active'` rows are ever returned, so unpublishing in the
+ *     admin panel removes a listing from the public site on the next load;
+ *   - `display_order` decides the sequence, which is the column the admin
+ *     table sorts on, so what an editor arranges is what a visitor sees.
+ */
+export async function listActiveListings(section?: string): Promise<Listing[]> {
+  // No backend configured at all is a build-time state, not a runtime failure —
+  // an empty list is the honest answer.
+  if (!HAS_BACKEND || !supabase) return []
+
+  let q = supabase
+    .from('listings')
+    .select(LISTING_SELECT)
+    .eq('status', 'active')
+    .order('display_order', { ascending: true, nullsFirst: false })
+    // A stable tiebreak within one display_order, so equal values do not
+    // reshuffle between loads.
+    .order('id', { ascending: true })
+
+  if (section) q = q.eq('section', section)
+
+  const { data, error } = await q
+  if (error) {
+    // Thrown, not swallowed. Returning an empty list here would render exactly
+    // like "nothing published yet", which is the one failure mode that must not
+    // look like success: it would hide a broken backend behind a page that
+    // appears fine. The section renders an error state instead.
+    throw new Error(`Failed to load listings: ${error.message}`)
+  }
+
+  return ((data ?? []) as unknown as ListingRow[]).map(toListing)
+}
+
+/**
+ * One published listing, by its database id.
+ *
+ * Backs `/listing/:id`. The id arrives from the URL as a string and the column
+ * is a bigint, so it is parsed and checked here rather than handed to PostgREST
+ * as-is: `/listing/abc` must be a clean "not found", not a 400 from Postgres
+ * failing to cast, and not an error state that reads like the server is broken.
+ *
+ * `status = 'active'` is applied for the same reason it is in
+ * `listActiveListings`: an unpublished row must not become reachable just
+ * because somebody has its id. Null therefore covers three cases the caller
+ * renders identically — never existed, deleted, or unpublished — which is
+ * correct, because distinguishing them for an anonymous visitor would leak
+ * exactly the thing unpublishing is for.
+ */
+export async function getListingById(id: string | number): Promise<Listing | null> {
+  if (!HAS_BACKEND || !supabase) return null
+
+  // `Number()` alone accepts '', '0x1f', '1e3' and ' 12 '; the ids this route
+  // issues are plain positive integers, so anything else is a bad URL.
+  const numeric = typeof id === 'number' ? id : /^\d+$/.test(id.trim()) ? Number(id.trim()) : NaN
+  if (!Number.isSafeInteger(numeric) || numeric <= 0) return null
+
   const { data, error } = await supabase
-    .from('rentals')
-    .select(SELECT.rental)
-    .eq('slug', slug)
-    .eq('status', 'published')
+    .from('listings')
+    .select(LISTING_SELECT)
+    .eq('id', numeric)
+    .eq('status', 'active')
+    // maybeSingle, not single: "no such row" is an ordinary outcome for a URL
+    // somebody typed, and `single` reports it as a query error instead.
     .maybeSingle()
 
-  if (error) throw new Error(`Failed to load rental: ${error.message}`)
+  if (error) throw new Error(`Failed to load listing: ${error.message}`)
   if (!data) return null
-  return toRental(data as unknown as RentalRow, areaCoords)
+  return toListing(data as unknown as ListingRow)
 }

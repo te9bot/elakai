@@ -1,10 +1,48 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import fs from 'node:fs'
 import path from 'node:path'
 
+/**
+ * Emits `dist/404.html` as a byte-for-byte copy of `dist/index.html`.
+ *
+ * GitHub Pages is static file hosting with no rewrite rules, so a request for
+ * `/elakai/admin` — a route that exists only inside the React router — finds no
+ * file and is served the 404 page. Making that page the app means the router
+ * boots, reads `location.pathname`, and renders the right screen. Without it,
+ * every deep link and every refresh away from `/elakai/` is a hard 404: opening
+ * a bookmarked `/elakai/admin`, or simply pressing reload while signed in.
+ *
+ * This has to happen at build time rather than as a documented `cp` in the
+ * deploy steps, because a manual step that only breaks deep links is a step
+ * that gets skipped and stays broken until somebody reloads the admin panel.
+ *
+ * The copy is written after the bundle closes; `globIgnores` below keeps it out
+ * of the service worker's precache manifest, so this is one route fallback
+ * rather than a second copy of the app shell shipped to every visitor.
+ */
+function githubPagesSpaFallback(): Plugin {
+  let outDir = 'dist'
+  return {
+    name: 'elakai:gh-pages-spa-fallback',
+    apply: 'build',
+    configResolved(config) {
+      outDir = config.build.outDir
+    },
+    closeBundle() {
+      const index = path.resolve(outDir, 'index.html')
+      if (!fs.existsSync(index)) {
+        this.warn('index.html was not emitted — skipping the 404.html SPA fallback.')
+        return
+      }
+      fs.copyFileSync(index, path.resolve(outDir, '404.html'))
+    },
+  }
+}
+
 export default defineConfig({
-  // Served from https://whitedevil-141.github.io/elakai/, not a domain root.
+  // Served from https://te9bot.github.io/elakai/, not a domain root.
   base: '/elakai/',
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
@@ -40,6 +78,11 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // 404.html is a byte-for-byte copy of index.html that exists only so
+        // GitHub Pages has something to serve for client-side routes. Precaching
+        // it would ship the app shell twice; navigations are already handled by
+        // navigateFallback against the real index.html.
+        globIgnores: ['404.html'],
         navigateFallbackDenylist: [/^\/api/],
         runtimeCaching: [
           {
@@ -56,6 +99,9 @@ export default defineConfig({
         ],
       },
     }),
+    // Last, so it copies the fully transformed index.html — the one that
+    // already carries the PWA registration script.
+    githubPagesSpaFallback(),
   ],
   build: {
     target: 'es2020',

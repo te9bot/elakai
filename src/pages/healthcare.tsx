@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/layout/page-header'
 import { Section } from '@/components/layout/section'
 import { HealthResultCard } from '@/components/healthcare/health-cards'
 import { HealthcareFilters } from '@/components/healthcare/health-filters'
+import { ListingsSection } from '@/components/listings/listings-section'
 import { CATEGORY_MAP } from '@/data/categories'
 import { HEALTH_CATEGORY_IDS } from '@/data/healthcare'
 import type { HealthCategoryId } from '@/data/healthcare-types'
@@ -292,6 +293,16 @@ export default function HealthcarePage() {
             </div>
 
             <p className="mt-6 text-body-sm text-pretty text-ink-muted">{t('health.hint')}</p>
+
+            {/* Published from the admin panel. Renders nothing until it has
+                rows, so this page is unchanged until somebody adds one. Kept on
+                the landing branch only: the search branch above is showing
+                results for a query these rows are not indexed against. */}
+            <ListingsSection
+              section="healthcare"
+              title="Listed healthcare"
+              description="Added by the ELAKAI team."
+            />
           </div>
         )}
       </Section>

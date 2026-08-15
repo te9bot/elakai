@@ -8,6 +8,7 @@ import { useReducedMotion } from '@/lib/motion'
 import { SearchBar } from '@/components/search/search-bar'
 import { CategoryChip } from '@/components/cards/category-tile'
 import { HeroEmergency } from '@/components/cards/emergency-card'
+
 import { InfiniteBand, InfiniteHorizontalTrack } from '@/components/infinite-track'
 import { CountUp } from '@/components/count-up'
 import { HOME_CHIP_IDS } from '@/data/categories'
@@ -158,15 +159,10 @@ export function HomeHero({ isPrecise }: { isPrecise: boolean }) {
     target: heroRef,
     offset: ['start start', 'end start'],
   })
-  // Backdrop drifts *with* the scroll (positive, so it lags); foreground layers
-  // pull ahead of it. Slowest at the back, fastest at the front.
-  const gridY = useTransform(scrollYProgress, [0, 1], [0, 90 * depth])
-  // The grid also pans sideways, which the layers above it do not. A backdrop
-  // that only slides vertically reads as a texture being dragged; give it a
-  // second axis and it reads as ground being crossed — which is the whole
-  // argument the mark above it is making. Small, and the layer is masked and
-  // full-bleed, so it can never expose an edge.
-  const gridX = useTransform(scrollYProgress, [0, 1], [0, -34 * depth])
+  // The backdrop's own drift now belongs to the shell's map, which parallaxes
+  // its layers against the window rather than against this section — so the
+  // grid transforms that used to live here are gone. What remains are the
+  // hero's foreground rates, which still pull ahead of that backdrop.
   const glowY = useTransform(scrollYProgress, [0, 1], [0, 130 * depth])
   const stripY = useTransform(scrollYProgress, [0, 1], [0, -18 * depth])
   const copyY = useTransform(scrollYProgress, [0, 1], [0, -46 * depth])
@@ -202,19 +198,19 @@ export function HomeHero({ isPrecise }: { isPrecise: boolean }) {
   return (
     <section
       ref={heroRef}
-      className="relative isolate overflow-hidden border-b border-line bg-surface"
+      // No `isolate` and no opaque surface: both would cut the hero off from
+      // the shell's map. The section is transparent and the backdrop shows
+      // through around the copy and the emergency panel, which is the
+      // relationship the composition depends on.
+      className="relative overflow-hidden border-b border-line"
     >
       {/* ---- Background depth ------------------------------------------ */}
       {/* Three layers, three scroll rates. The grid reads as a map fragment and
           costs nothing to draw; the two washes drift on a long, unsynchronised
           loop so the pairing never visibly repeats. */}
-      <m.div
-        aria-hidden="true"
-        // Inset negatively on the horizontal axis so the pan never drags the
-        // texture's own edge into view.
-        className="surveyor-grid mask-fade-b absolute -inset-x-12 inset-y-0 -z-10"
-        style={reduced ? undefined : { y: gridY, x: gridX }}
-      />
+      {/* The map used to be mounted here, private to the hero. It now lives in
+          the app shell and continues behind every public page, so this section
+          simply lets it through — see components/layout/app-shell.tsx. */}
       <div
         aria-hidden="true"
         className="absolute inset-x-0 top-0 -z-10 h-72 bg-gradient-to-b from-primary/[0.07] to-transparent"

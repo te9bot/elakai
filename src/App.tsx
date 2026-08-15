@@ -18,6 +18,7 @@ import { HomePage } from '@/pages/home'
 
 const SearchPage = lazy(() => import('@/pages/search'))
 const BusinessPage = lazy(() => import('@/pages/business'))
+const ListingPage = lazy(() => import('@/pages/listing'))
 const EmergencyPage = lazy(() => import('@/pages/emergency'))
 const HealthcarePage = lazy(() => import('@/pages/healthcare'))
 const HealthProfilePage = lazy(() => import('@/pages/health-profile'))
@@ -33,24 +34,8 @@ const AdminShell = lazy(() =>
 )
 const AdminLoginPage = lazy(() => import('@/pages/admin/login'))
 const AdminDashboardPage = lazy(() => import('@/pages/admin/dashboard'))
-
-// All CRUD screens share one chunk — see src/pages/admin/crud.tsx.
-const crud = () => import('@/pages/admin/crud')
-const adminPage = (key: keyof Awaited<ReturnType<typeof crud>>) =>
-  lazy(() => crud().then((m) => ({ default: m[key] })))
-
-const FacilitiesListPage = adminPage('FacilitiesListPage')
-const FacilityFormPage = adminPage('FacilityFormPage')
-const DoctorsListPage = adminPage('DoctorsListPage')
-const DoctorFormPage = adminPage('DoctorFormPage')
-const BusinessesListPage = adminPage('BusinessesListPage')
-const BusinessFormPage = adminPage('BusinessFormPage')
-const RentalsListPage = adminPage('RentalsListPage')
-const RentalFormPage = adminPage('RentalFormPage')
-const EmergencyListPage = adminPage('EmergencyListPage')
-const EmergencyFormPage = adminPage('EmergencyFormPage')
-const CoverageListPage = adminPage('CoverageListPage')
-const CoverageFormPage = adminPage('CoverageFormPage')
+const AdminListingsPage = lazy(() => import('@/pages/admin/listings'))
+const AdminListingEditPage = lazy(() => import('@/pages/admin/listing-edit'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -83,6 +68,11 @@ const router = createBrowserRouter(
         { path: '/home', element: <Navigate to="/" replace /> },
         { path: '/search', element: lazyRoute(SearchPage) },
         { path: '/business/:slug', element: lazyRoute(BusinessPage) },
+        // Admin-published content from `public.listings`. Keyed by the row's
+        // primary key rather than a slug: it is the identifier the admin panel
+        // already shows and the cards already hold, so there is no second
+        // identifier to keep in step with it.
+        { path: '/listing/:id', element: lazyRoute(ListingPage) },
         { path: '/emergency', element: lazyRoute(EmergencyPage) },
         { path: '/healthcare', element: lazyRoute(HealthcarePage) },
         // The healthcare directory has its own record shape and profile layout,
@@ -108,30 +98,24 @@ const router = createBrowserRouter(
       children: [
         { index: true, element: lazyRoute(AdminDashboardPage) },
 
-        { path: 'facilities', element: lazyRoute(FacilitiesListPage) },
-        // `new` before `:id` so the literal wins the match.
-        { path: 'facilities/new', element: lazyRoute(FacilityFormPage) },
-        { path: 'facilities/:id', element: lazyRoute(FacilityFormPage) },
+        // `public.listings` is the one table this project has, and every part
+        // of the public site now reads it. One screen edits all of it, filtered
+        // by section — see components/admin/admin-shell.tsx.
+        //
+        // There were twelve further routes here (facilities, doctors,
+        // businesses, rentals, emergency contacts, coverage bands), each a
+        // full list-and-form screen against a table this project does not have
+        // and, now that the directory lives in `listings`, never will. They
+        // were unreachable from the sidebar but reachable by URL, where every
+        // one of them errored. Removed with their screens.
+        { path: 'listings', element: lazyRoute(AdminListingsPage) },
+        // Addressable editor, keyed on `public.listings.id`. `new` is not a
+        // route here: creating has no id to address, so it stays the inline
+        // form on the screen above.
+        { path: 'listings/:id/edit', element: lazyRoute(AdminListingEditPage) },
 
-        { path: 'doctors', element: lazyRoute(DoctorsListPage) },
-        { path: 'doctors/new', element: lazyRoute(DoctorFormPage) },
-        { path: 'doctors/:id', element: lazyRoute(DoctorFormPage) },
-
-        { path: 'businesses', element: lazyRoute(BusinessesListPage) },
-        { path: 'businesses/new', element: lazyRoute(BusinessFormPage) },
-        { path: 'businesses/:id', element: lazyRoute(BusinessFormPage) },
-
-        { path: 'rentals', element: lazyRoute(RentalsListPage) },
-        { path: 'rentals/new', element: lazyRoute(RentalFormPage) },
-        { path: 'rentals/:id', element: lazyRoute(RentalFormPage) },
-
-        { path: 'emergency', element: lazyRoute(EmergencyListPage) },
-        { path: 'emergency/new', element: lazyRoute(EmergencyFormPage) },
-        { path: 'emergency/:id', element: lazyRoute(EmergencyFormPage) },
-
-        { path: 'coverage', element: lazyRoute(CoverageListPage) },
-        { path: 'coverage/new', element: lazyRoute(CoverageFormPage) },
-        { path: 'coverage/:id', element: lazyRoute(CoverageFormPage) },
+        // Anything else under /admin is a mistyped or stale URL, not a screen.
+        { path: '*', element: lazyRoute(NotFoundPage) },
       ],
     },
   ],

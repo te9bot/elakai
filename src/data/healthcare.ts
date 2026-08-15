@@ -18,9 +18,10 @@ import type { Localized } from './types'
  * that could send a person to the wrong place is held to a different standard:
  *
  *   phone          Always a placeholder in the reserved +880 1700-000-2xx /
- *                  -3xx range while DEMO_MODE is true (src/lib/config.ts).
- *                  Nothing here dials. Replace and verify by dialling before
- *                  flipping DEMO_MODE.
+ *                  -3xx range, which `src/lib/phone.ts` never dials.
+ *                  Nothing here dials. Replace with a number verified by
+ *                  actually dialling it, and it becomes live immediately —
+ *                  there is no flag to flip.
  *   address        Present only where a location is actually known. A record
  *                  with no address falls back to its upazila, which is true.
  *   coords         Omitted. The map falls back to the area centre and says so.

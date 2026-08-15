@@ -8,7 +8,6 @@ import {
   GraduationCap,
   Mail,
   MapPin,
-  Navigation,
   Phone,
   Share2,
   Siren,
@@ -20,7 +19,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Rating } from '@/components/ui/rating'
 import { Separator } from '@/components/ui/separator'
-import { CallButton } from '@/components/call-button'
+import { CallButton, PhoneLink } from '@/components/call-button'
 import { Icon } from '@/components/icon'
 import { ListingArt } from '@/components/listing-art'
 import { MapPanel } from '@/components/business/map-panel'
@@ -41,7 +40,8 @@ import { AREA_MAP } from '@/data/categories'
 import type { Doctor, HealthContact, HealthFacility, HealthRecord } from '@/data/healthcare-types'
 import { useHealthcare } from '@/hooks/use-queries'
 import { doctorsAt, getFacility, getHealthRecord, relatedTo } from '@/lib/healthcare-search'
-import { DAY_NAMES, directionsHref, formatTime } from '@/lib/format'
+import { DAY_NAMES, formatTime } from '@/lib/format'
+import { DirectionsButton } from '@/components/directions-button'
 import { useI18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
@@ -158,22 +158,23 @@ function ContactCard({ contact, className }: { contact: HealthContact; className
     rows.push({
       icon: <Phone className="size-4" aria-hidden="true" />,
       label: t('biz.phone'),
-      // Rendered as text, never a tel: link, while DEMO_MODE is on.
-      value: <span className="tnum font-bold">{contact.phone}</span>,
+      // A link when the number is real, plain text when it is a placeholder —
+      // decided by lib/phone.ts from the number itself, not by a build flag.
+      value: <PhoneLink phone={contact.phone} />,
     })
   }
   if (contact.appointmentPhone) {
     rows.push({
       icon: <Phone className="size-4" aria-hidden="true" />,
       label: t('health.appointmentPhone'),
-      value: <span className="tnum font-bold">{contact.appointmentPhone}</span>,
+      value: <PhoneLink phone={contact.appointmentPhone} />,
     })
   }
   if (contact.emergencyPhone) {
     rows.push({
       icon: <Siren className="size-4" aria-hidden="true" />,
       label: t('health.emergencyPhone'),
-      value: <span className="tnum font-bold">{contact.emergencyPhone}</span>,
+      value: <PhoneLink phone={contact.emergencyPhone} />,
     })
   }
   if (contact.email) {
@@ -337,16 +338,14 @@ function FacilityProfile({ facility }: { facility: HealthFacility }) {
                 className="min-w-40 flex-1"
               />
             )}
-            <Button asChild variant="secondary" size="lg" className="min-w-40 flex-1">
-              <a
-                href={directionsHref(coords, L(facility.name))}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <Navigation />
-                {t('card.directions')}
-              </a>
-            </Button>
+            <DirectionsButton
+              coords={coords}
+              coordsApprox={coordsApprox}
+              address={facility.address ? L(facility.address) : null}
+              label={L(facility.name)}
+              size="lg"
+              className="min-w-40 flex-1"
+            />
             <LinkButtons contact={facility.contact} />
           </div>
         </Card>
@@ -485,26 +484,11 @@ function FacilityProfile({ facility }: { facility: HealthFacility }) {
               </Card>
             </ProfileSection>
 
-            {/* ---------------- রিভিউ ---------------- */}
-            <ProfileSection title={t('biz.reviews')}>
-              {facility.rating === undefined ? (
-                // No invented stars. A rating appears only when a source published one.
-                <Card className="p-5">
-                  <p className="text-body-sm text-pretty text-ink-muted">
-                    {t('health.noRatingSource')}
-                  </p>
-                </Card>
-              ) : (
-                <Card className="flex items-center gap-4 p-5">
-                  <Rating
-                    value={facility.rating}
-                    count={facility.reviewCount}
-                    showStars
-                    size="md"
-                  />
-                </Card>
-              )}
-            </ProfileSection>
+            {/* A রিভিউ section stood here and is deliberately gone — see the
+                same removal in pages/business.tsx. It rendered either a rating
+                nobody published or a "no rating source" placeholder, and an
+                empty section is worse than an absent one on a page someone is
+                reading to choose a hospital. */}
 
             {/* ---------------- তথ্যের উৎস ---------------- */}
             <SourceNote source={facility.source} />
@@ -535,16 +519,14 @@ function FacilityProfile({ facility }: { facility: HealthFacility }) {
               className="flex-[2]"
             />
           )}
-          <Button asChild variant="secondary" size="lg" className="flex-1">
-            <a
-              href={directionsHref(coords, L(facility.name))}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <Navigation />
-              {t('card.directions')}
-            </a>
-          </Button>
+          <DirectionsButton
+            coords={coords}
+            coordsApprox={coordsApprox}
+            address={facility.address ? L(facility.address) : null}
+            label={L(facility.name)}
+            size="lg"
+            className="flex-1"
+          />
         </div>
       </div>
     </div>

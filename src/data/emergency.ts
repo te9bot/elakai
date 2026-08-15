@@ -2,15 +2,31 @@ import type { EmergencyContact } from './types'
 import { AREA_MAP } from './categories'
 
 /* ==========================================================================
- * PLACEHOLDER DATA — SAFETY CRITICAL. See src/lib/config.ts.
+ * EMERGENCY CONTACTS — SAFETY CRITICAL.
  *
- * These numbers are NOT real emergency numbers. Every value below is in the
- * reserved +880 1700-000-9xx placeholder range and reaches nobody. The real
- * national helpline numbers are deliberately NOT reproduced here, so that no
- * one can mistake this demo for an authoritative source during an emergency.
+ * MOSTLY PLACEHOLDER. Every `phone` below in the reserved +880 1700-000-9xx
+ * range reaches nobody, and `lib/phone.ts` refuses to dial it. Replace each one
+ * with a number verified against the publishing authority; nothing else is
+ * needed, because dialability is decided from the number itself and a verified
+ * number starts working the moment it lands here.
  *
- * Before going live, replace every `phone` with a number verified against the
- * publishing authority, then set DEMO_MODE to false.
+ * THE ONE REAL NUMBER
+ *
+ * `e01` carries 999 — Bangladesh's actual national emergency line, reaching
+ * police, fire service and ambulance. It is real, correct, and published by the
+ * government for exactly this purpose.
+ *
+ * It is deliberately the only verified number in this file. The earlier policy
+ * was to reproduce no real helpline at all, so that nothing here could be
+ * mistaken for an authoritative source. That made sense while the whole site
+ * was a demonstration; it does not now, because the one thing a Kushtia
+ * resident opening an emergency page most needs is the number that actually
+ * answers. Withholding it to avoid implying authority is the more dangerous of
+ * the two mistakes.
+ *
+ * 999 IS NOT 911. 911 is the North American number and reaches nothing from a
+ * Bangladeshi phone. If you see 911 anywhere in this application or its
+ * database, it is wrong and must be corrected to 999.
  * ========================================================================== */
 
 const sadar = AREA_MAP['kushtia-sadar'].coords
@@ -24,7 +40,10 @@ export const EMERGENCY_CONTACTS: EmergencyContact[] = [
       bn: 'পুলিশ, ফায়ার সার্ভিস ও অ্যাম্বুলেন্স — এক নম্বরে সব জরুরি সহায়তা।',
       en: 'Police, fire service and ambulance — all urgent help on one line.',
     },
-    phone: '+880 1700-000-901',
+    // Bangladesh's national emergency number. Real, verified, and the single
+    // canonical definition of it in this codebase — the importer, the hero
+    // panel, the cards, the detail page and search all read this one value.
+    phone: '999',
     icon: 'shield',
     scope: 'national',
     tone: 'danger',

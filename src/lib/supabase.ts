@@ -13,8 +13,18 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
  * Supabase dashboard.
  * ========================================================================== */
 
-const url = import.meta.env.VITE_SUPABASE_URL
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+/*
+ * `import.meta.env` is injected by Vite and is simply absent under plain Node,
+ * where this module is reached by the build scripts in `scripts/` that import
+ * the mappers. Reading a property off it directly throws there before any of
+ * them can run, so it is defaulted rather than assumed. The result is the same
+ * in the browser and leaves `HAS_BACKEND` false outside it, which is correct:
+ * a codegen script has no backend and should not think it has one.
+ */
+const env = import.meta.env ?? ({} as ImportMetaEnv)
+
+const url = env.VITE_SUPABASE_URL
+const anonKey = env.VITE_SUPABASE_ANON_KEY
 
 /**
  * Whether a backend is configured at all.

@@ -3,6 +3,7 @@ import { CategoryBrowser } from '@/components/category-browser'
 import { CategoryTile } from '@/components/cards/category-tile'
 import { PageHeader } from '@/components/layout/page-header'
 import { Section } from '@/components/layout/section'
+import { ListingsSection } from '@/components/listings/listings-section'
 import { SERVICE_IDS } from '@/data/categories'
 import { useI18n } from '@/lib/i18n'
 
@@ -25,6 +26,19 @@ export default function ServicesPage() {
         </div>
 
         <CategoryBrowser categoryIds={SERVICE_IDS} />
+
+        {/* Published from the admin panel. Renders nothing until it has rows,
+            so this page is unchanged until somebody adds one. */}
+        <ListingsSection
+          section="services"
+          title="Listed services"
+          description="Added by the ELAKAI team."
+        />
+        <ListingsSection
+          section="utilities"
+          title="Utilities"
+          description="Added by the ELAKAI team."
+        />
       </Section>
     </>
   )

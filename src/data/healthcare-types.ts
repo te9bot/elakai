@@ -49,7 +49,7 @@ export type DataSource = {
 /* ------------------------------------------------------------------ */
 
 export type HealthContact = {
-  /** PLACEHOLDER while DEMO_MODE is true. See src/lib/config.ts. */
+  /** PLACEHOLDER — the reserved range never dials. See src/lib/phone.ts. */
   phone?: string
   /** Separate appointment/serial line where one is published. */
   appointmentPhone?: string

@@ -23,6 +23,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { RentalCard } from '@/components/cards/rental-card'
+import { ListingsSection } from '@/components/listings/listings-section'
 import { RentalDetailSheet } from '@/components/rentals/rental-detail-sheet'
 import {
   RentalSearchBar,
@@ -325,6 +326,14 @@ export default function RentalsPage() {
               ))}
             </div>
           )}
+
+          {/* Published from the admin panel. Renders nothing until it has rows,
+              so this page is unchanged until somebody adds one. */}
+          <ListingsSection
+            section="rentals"
+            title="Listed rentals"
+            description="Added by the ELAKAI team."
+          />
         </div>
       </Section>
 
