@@ -79,20 +79,24 @@ populate.
 
 ## Deployment
 
-GitHub Pages serves the `gh-pages` branch, which holds a production build of
-`main`. Redeploying is manual:
+Every push to `main` builds the site and publishes it to GitHub Pages through
+`.github/workflows/deploy.yml`. There is nothing to run by hand; the Actions tab
+also has a **Run workflow** button to redeploy the current `main` without an
+empty commit.
 
-```bash
-npm run build
-git worktree add --orphan -b gh-pages /tmp/ghpages   # first time only
-cp -r dist/* /tmp/ghpages/
-cd /tmp/ghpages && git add -A && git commit -m "Deploy" && git push origin gh-pages
-```
+`.env.local` is gitignored, so the workflow reads the two public Vite values
+from the repository's Actions secrets (falling back to Actions variables):
 
-Build locally, not in CI, unless the Supabase URL and publishable key are
-configured as repository variables — `.env.local` is gitignored, so a CI build
-without them produces a bundle with no backend, and an admin panel that reports
-itself unconfigured.
+| Name | Where it comes from |
+| --- | --- |
+| `VITE_SUPABASE_URL` | Supabase → Project Settings → Data API → Project URL |
+| `VITE_SUPABASE_ANON_KEY` | Supabase → Project Settings → API Keys → anon public |
+
+Both are inlined into the bundle and therefore public; the anon key is safe to
+ship because every table is under RLS. A service_role key must never be added —
+it bypasses RLS and would reach every visitor. If either value is missing the
+workflow fails on purpose: the build would otherwise succeed and quietly publish
+a bundle with no backend and an admin panel that reports itself unconfigured.
 
 `dist/404.html` is emitted by the build (see `githubPagesSpaFallback` in
 `vite.config.ts`) and must ship with the rest of `dist/`. Pages has no rewrite
@@ -100,15 +104,15 @@ rules, so it is the only reason `/elakai/admin` survives a refresh or a
 bookmarked deep link: Pages serves it for any path with no matching file, the
 router reads the URL, and the right screen renders.
 
-`.github/workflows/deploy.yml` exists locally and would automate this on every
-push to `main`, but it is **not committed** — pushing a file under
-`.github/workflows/` requires the `workflow` OAuth scope. To switch over:
+Pushing a file under `.github/workflows/` requires the `workflow` OAuth scope on
+whatever credential git is using. If a push is rejected for that reason, refresh
+it (`gh auth refresh -h github.com -s workflow`, or issue a personal access
+token with `repo` + `workflow`) rather than working around it.
+
+The old `gh-pages` branch is superseded and can be deleted once a workflow run
+has published successfully:
 
 ```bash
-gh auth refresh -h github.com -s workflow
-git add .github/workflows/deploy.yml && git commit -m "Add Pages deploy workflow"
-git push
-gh api -X PUT /repos/te9bot/elakai/pages -f build_type=workflow
 git push origin --delete gh-pages
 ```
 

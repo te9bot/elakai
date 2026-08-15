@@ -1,0 +1,104 @@
+# =============================================================================
+# Deploy ELAKAI to GitHub Pages.
+#
+# Replaces the manual `gh-pages` branch deploy documented in README.md: every
+# push to `main` builds the site and publishes it to
+# https://te9bot.github.io/elakai/ through the official Pages artifact flow
+# (upload-pages-artifact -> deploy-pages), with no long-lived deploy branch.
+#
+# The site is served from a subpath. `base` in vite.config.ts and `basename` in
+# src/App.tsx are both `/elakai`, so nothing here needs to set a base — it is
+# baked into the build. Renaming the repository means editing those two files
+# plus the PWA start_url/scope, not this workflow.
+# =============================================================================
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # Lets you redeploy the current main without an empty commit, from the
+  # Actions tab -> Deploy to GitHub Pages -> Run workflow.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race for the live site. In-flight runs are allowed to
+# finish rather than being cancelled, so a deploy is never left half-applied.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci` — installs exactly package-lock.json, the project's existing
+      # lockfile. Do not switch this to another package manager.
+      - name: Install dependencies
+        run: npm ci
+
+      # Both values are read by src/lib/supabase.ts and inlined into the bundle
+      # by Vite, so they are public by construction — the anon key grants no
+      # authority on its own, since every table is under RLS
+      # (supabase/migrations/0002_rls.sql). A service_role key must NEVER be
+      # added here: it bypasses RLS and would ship to every visitor.
+      #
+      # Repository *secrets* are read first, falling back to repository
+      # *variables*, so either place works — set them once, in one of the two.
+      - name: Check Supabase configuration is present
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
+        # Without these, the build still succeeds but produces a bundle with
+        # HAS_BACKEND false: no live listings, and an admin panel that reports
+        # itself unconfigured. That is a silent, plausible-looking regression on
+        # the live site, so fail here instead of publishing it.
+        run: |
+          missing=
+          [ -n "$VITE_SUPABASE_URL" ] || missing="$missing VITE_SUPABASE_URL"
+          [ -n "$VITE_SUPABASE_ANON_KEY" ] || missing="$missing VITE_SUPABASE_ANON_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s)/variable(s):$missing"
+            echo "Add them under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
+        run: npm run build
+
+      # Sets the Pages source to this workflow. `enablement: true` flips a
+      # repository still configured for branch-based (gh-pages) publishing over
+      # to Actions on the first successful run, so no manual switch is needed.
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
