@@ -260,6 +260,22 @@ function contactOf(row: RichListingRow): HealthContact {
   }
 }
 
+/**
+ * The uploaded photograph for a row, or undefined.
+ *
+ * Every mapper below carries this. It is the one field an admin can add to a
+ * record that has no other representation in the domain types — `image_seed`
+ * only ever selects a generated gradient — so dropping it here is what made an
+ * image upload save correctly and then never appear on the public site.
+ *
+ * Blank is normalised to undefined so `''` cannot reach an `<img src>`, where
+ * it resolves against the current document and re-requests the page itself.
+ */
+function imageUrlOf(row: RichListingRow): string | undefined {
+  const url = row.image_url?.trim()
+  return url ? url : undefined
+}
+
 /* ------------------------------------------------------------------ */
 /* Mappers                                                             */
 /* ------------------------------------------------------------------ */
@@ -288,6 +304,7 @@ export function listingToBusiness(row: RichListingRow): Business {
     // The art seed must be stable across reloads, so it falls back to the
     // primary key rather than to anything random.
     imageSeed: row.image_seed ?? row.id,
+    imageUrl: imageUrlOf(row),
     photoCount: row.photo_count ?? 0,
     reviews: jsonArrayOr<Review>(row.reviews, []),
     updatedAt: row.updated_at ?? row.created_at ?? '',
@@ -316,6 +333,7 @@ export function listingToRental(row: RichListingRow): Rental {
     coordsApprox: !hasExactCoords(row),
     verified: row.verified ?? false,
     imageSeed: row.image_seed ?? row.id,
+    imageUrl: imageUrlOf(row),
     availableFrom: row.available_from ?? '',
     updatedAt: row.updated_at ?? row.created_at ?? '',
   }
@@ -341,6 +359,7 @@ export function listingToEmergency(row: RichListingRow): EmergencyContact {
     // put a "directions" link on a card that has no known location.
     coords: hasCoords ? { lat: row.lat as number, lng: row.lng as number } : undefined,
     address: localizedOrNull(row.address_bn, row.address_en, row.address),
+    imageUrl: imageUrlOf(row),
   }
 }
 
@@ -379,6 +398,7 @@ function listingToFacility(row: RichListingRow): HealthFacility {
     rating: row.rating ?? undefined,
     reviewCount: row.review_count || undefined,
     featured: row.featured ?? undefined,
+    imageUrl: imageUrlOf(row),
     source: sourceOf(row),
   }
 }
@@ -399,6 +419,7 @@ function listingToDoctor(row: RichListingRow): Doctor {
     contact: contactOf(row),
     area: areaOf(row),
     featured: row.featured ?? undefined,
+    imageUrl: imageUrlOf(row),
     source: sourceOf(row),
   }
 }

@@ -122,6 +122,14 @@ export type Business = {
   services: Localized[]
   /** Seeded index into the generated-artwork palette, so imagery is stable. */
   imageSeed: number
+  /**
+   * A real photograph, when one has been uploaded from the admin panel.
+   *
+   * Optional because the bundled dataset has none and never will: `imageSeed`
+   * is the fallback, not the other way round. Where this is set it wins, which
+   * is what makes an admin's upload the thing a visitor actually sees.
+   */
+  imageUrl?: string | null
   photoCount: number
   reviews: Review[]
   /** ISO date the listing was last checked. */
@@ -157,6 +165,8 @@ export type Rental = {
   coordsApprox?: boolean
   verified: boolean
   imageSeed: number
+  /** See `Business.imageUrl`. */
+  imageUrl?: string | null
   availableFrom: string
   updatedAt: string
 }
@@ -178,6 +188,8 @@ export type EmergencyContact = {
   available24: boolean
   coords?: LatLng
   address?: Localized
+  /** See `Business.imageUrl`. */
+  imageUrl?: string | null
 }
 
 export type AreaId =

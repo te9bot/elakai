@@ -1,6 +1,6 @@
 import { Bath, BedDouble, MapPin, Maximize, Sofa } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { ListingArt } from '@/components/listing-art'
+import { ListingPhoto } from '@/components/listing-photo'
 import { VerifiedBadge } from '@/components/status'
 import { CATEGORY_MAP } from '@/data/categories'
 import type { Rental } from '@/data/types'
@@ -103,7 +103,9 @@ export function RentalCard({
       >
         {/* ---- Artwork ---- */}
         <div className="relative">
-          <ListingArt
+          <ListingPhoto
+            src={rental.imageUrl}
+            alt={L(rental.title)}
             seed={rental.imageSeed}
             icon={cat.icon}
             paletteIndex={theme.paletteIndex}

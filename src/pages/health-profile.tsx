@@ -21,7 +21,7 @@ import { Rating } from '@/components/ui/rating'
 import { Separator } from '@/components/ui/separator'
 import { CallButton, PhoneLink } from '@/components/call-button'
 import { Icon } from '@/components/icon'
-import { ListingArt } from '@/components/listing-art'
+import { ListingPhoto } from '@/components/listing-photo'
 import { MapPanel } from '@/components/business/map-panel'
 import { EmptyState, ErrorState } from '@/components/feedback'
 import { BrandLoader } from '@/components/brand-loader'
@@ -120,10 +120,13 @@ function ProfileHero({ record }: { record: HealthRecord }) {
 
   return (
     <div className="relative">
-      <ListingArt
+      <ListingPhoto
+        src={record.imageUrl}
+        alt={L(record.name)}
         seed={seedOf(record.id)}
         icon={cat.icon}
         rounded={false}
+        priority
         className="h-44 w-full sm:h-60 lg:h-64"
       />
 

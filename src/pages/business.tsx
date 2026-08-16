@@ -17,6 +17,7 @@ import { Separator } from '@/components/ui/separator'
 import { CallButton, PhoneLink } from '@/components/call-button'
 import { Icon } from '@/components/icon'
 import { ListingArt } from '@/components/listing-art'
+import { ListingPhoto } from '@/components/listing-photo'
 import { MapPanel } from '@/components/business/map-panel'
 import { BusinessCard } from '@/components/cards/business-card'
 import { DetailSkeleton, EmptyState } from '@/components/feedback'
@@ -78,10 +79,13 @@ export default function BusinessPage() {
     <div className="pb-28 lg:pb-8">
       {/* ---------------- Hero ---------------- */}
       <div className="relative">
-        <ListingArt
+        <ListingPhoto
+          src={business.imageUrl}
+          alt={L(business.name)}
           seed={business.imageSeed}
           icon={cat.icon}
           rounded={false}
+          priority
           className="h-52 w-full sm:h-72 lg:h-80"
         />
 
@@ -254,6 +258,18 @@ export default function BusinessPage() {
               {/* The bleed reaches the screen edge on mobile; inside the desktop
                   grid column it would only push photos into the sidebar gutter. */}
               <div className="rail rail-bleed lg:[--bleed:0px]">
+                {/* The uploaded photograph leads the rail. It is the only real
+                    image here — the rest are generated stand-ins — so burying
+                    it among them would hide the one thing an admin published. */}
+                {business.imageUrl && (
+                  <ListingPhoto
+                    src={business.imageUrl}
+                    alt={L(business.name)}
+                    seed={business.imageSeed}
+                    icon={cat.icon}
+                    className="h-32 w-44 shrink-0 sm:h-40 sm:w-56"
+                  />
+                )}
                 {Array.from({ length: business.photoCount }).map((_, i) => (
                   <ListingArt
                     key={i}

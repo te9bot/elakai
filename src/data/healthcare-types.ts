@@ -93,6 +93,8 @@ export type HealthFacility = {
   reviewCount?: number
   /** Surfaced on the landing screen before the user searches. */
   featured?: boolean
+  /** A photograph uploaded from the admin panel. See `Business.imageUrl`. */
+  imageUrl?: string | null
   source: DataSource
 }
 
@@ -129,6 +131,8 @@ export type Doctor = {
   /** Home area, used by the area filter when there are no chambers. */
   area: AreaId
   featured?: boolean
+  /** A photograph uploaded from the admin panel. See `Business.imageUrl`. */
+  imageUrl?: string | null
   source: DataSource
 }
 

@@ -16,7 +16,8 @@ import type {
 import { FAKE_LATENCY_MS } from './config'
 import { haversineKm } from './format'
 import { setHealthCorpus } from './healthcare-search'
-import { LISTING_SELECT, toListing, type Listing, type ListingRow } from './listings'
+import { listingSelect } from './listing-columns'
+import { toListing, type Listing, type ListingRow } from './listings'
 import { listingKey } from './listings-import'
 import {
   listingToBusiness,
@@ -154,27 +155,33 @@ function hasRichSchema(): Promise<boolean> {
 }
 
 /* ------------------------------------------------------------------ */
-/* Database phone overlay                                              */
+/* Database overlay                                                    */
 /* ------------------------------------------------------------------ */
 
 /**
- * The phone number `public.listings` holds for each bundled record.
+ * What `public.listings` holds for each bundled record — the fields an admin
+ * edits that the bundled dataset cannot carry.
  *
  * WHY THIS EXISTS
  *
  * Until migration 0004 lands, the loaders below cannot build a `Business` or an
  * `EmergencyContact` out of the flat sixteen columns — there is no slug, no
  * coordinates, no bilingual copy — so they serve the bundled dataset instead.
- * That is a reasonable fallback for presentation, and a bad one for a phone
- * number: an admin who corrects a number in the panel writes it to the
- * database, and the site keeps rendering the bundled placeholder, which
- * `CallButton` then correctly refuses to dial. Measured on the emergency page:
- * fourteen services, ten of them with real numbers saved, and one Call button
- * on the whole page.
+ * That is a reasonable fallback for presentation, and a bad one for the fields
+ * an admin actually goes into the panel to change: they write to the database,
+ * and the site keeps rendering the bundled value.
  *
- * So `phone` is taken from the database even while the rest of the record is
- * not. It is the one field where being current matters more than being
- * complete, and the one an admin is most likely to have fixed.
+ * `phone` was the first such field. Measured on the emergency page: fourteen
+ * services, ten of them with real numbers saved, and one Call button on the
+ * whole page, because `CallButton` correctly refuses to dial the bundled
+ * placeholders.
+ *
+ * `image_url` is the second, and it fails harder. A bundled record has no
+ * photograph at all — only `imageSeed`, which selects a generated gradient — so
+ * an uploaded image had nowhere to land. It was written to the bucket, stored
+ * on the row, shown in the admin editor, and then dropped on the floor by every
+ * public page, which went on drawing the gradient. Overlaying it here is what
+ * makes an upload visible on the site it was uploaded for.
  *
  * Matched on the same composite identity the importer dedupes on, so a record
  * is paired here exactly as it is there. Renaming a listing in the panel breaks
@@ -183,42 +190,80 @@ function hasRichSchema(): Promise<boolean> {
  *
  * Cached as the promise so the loaders share one request.
  */
-let phoneOverlayPromise: Promise<Map<string, string>> | null = null
+type ListingOverlay = { phone?: string; imageUrl?: string }
 
-function phoneOverlay(): Promise<Map<string, string>> {
+let overlayPromise: Promise<Map<string, ListingOverlay>> | null = null
+
+function listingOverlay(): Promise<Map<string, ListingOverlay>> {
   const db = supabase
   if (!HAS_BACKEND || !db) return Promise.resolve(new Map())
 
-  phoneOverlayPromise ??= (async () => {
+  overlayPromise ??= (async () => {
     const { data, error } = await db
       .from('listings')
-      .select('section, title, phone')
+      .select('section, title, phone, image_url')
       .eq('status', 'active')
 
-    // A failure here must not take a page down: the bundled number is still
-    // shown, it simply will not dial.
-    if (error) return new Map<string, string>()
+    // A failure here must not take a page down: the bundled record is still
+    // shown, it simply keeps its bundled number and its generated artwork.
+    if (error) {
+      console.error('[elakai] listing overlay could not be read:', error.message)
+      return new Map<string, ListingOverlay>()
+    }
 
-    const rows = (data ?? []) as { section: string | null; title: string | null; phone: string | null }[]
-    const map = new Map<string, string>()
+    const rows = (data ?? []) as {
+      section: string | null
+      title: string | null
+      phone: string | null
+      image_url: string | null
+    }[]
+
+    const map = new Map<string, ListingOverlay>()
     for (const row of rows) {
-      if (row.phone?.trim()) map.set(listingKey(row.section, row.title), row.phone.trim())
+      const phone = row.phone?.trim()
+      const imageUrl = row.image_url?.trim()
+      if (!phone && !imageUrl) continue
+      map.set(listingKey(row.section, row.title), {
+        phone: phone || undefined,
+        imageUrl: imageUrl || undefined,
+      })
     }
     return map
-  })().catch(() => new Map<string, string>())
+  })().catch((error) => {
+    console.error('[elakai] listing overlay could not be read:', error)
+    overlayPromise = null
+    return new Map<string, ListingOverlay>()
+  })
 
-  return phoneOverlayPromise
+  return overlayPromise
 }
 
-/** Replaces a bundled record's phone with the database's, where there is one. */
-function withDatabasePhone<T extends { phone: string }>(
+/**
+ * Applies the database's phone and image to a bundled record.
+ *
+ * Returns the record untouched when there is nothing to apply, so the identity
+ * check that React's memoised lists rely on still holds for the majority of
+ * records that have no overlay at all.
+ */
+function withDatabaseFields<T extends { phone: string; imageUrl?: string | null }>(
   record: T,
   section: string,
   title: string,
-  overlay: Map<string, string>,
+  overlay: Map<string, ListingOverlay>,
 ): T {
-  const phone = overlay.get(listingKey(section, title))
-  return phone && phone !== record.phone ? { ...record, phone } : record
+  const found = overlay.get(listingKey(section, title))
+  if (!found) return record
+
+  const phone = found.phone && found.phone !== record.phone ? found.phone : undefined
+  const imageUrl =
+    found.imageUrl && found.imageUrl !== record.imageUrl ? found.imageUrl : undefined
+
+  if (!phone && !imageUrl) return record
+  return {
+    ...record,
+    ...(phone ? { phone } : {}),
+    ...(imageUrl ? { imageUrl } : {}),
+  }
 }
 
 /** True when the database has content for this domain and should be believed. */
@@ -291,8 +336,8 @@ async function loadCorpus(): Promise<Business[]> {
 
     // A business's section is its category group, which is what the importer
     // wrote and therefore what the overlay is keyed on.
-    const overlay = await phoneOverlay()
-    return BUSINESSES.map((b) => withDatabasePhone(b, b.group, b.name.en, overlay))
+    const overlay = await listingOverlay()
+    return BUSINESSES.map((b) => withDatabaseFields(b, b.group, b.name.en, overlay))
   })()
     .then((businesses) => {
       setBusinessCorpus(businesses)
@@ -308,9 +353,17 @@ async function loadCorpus(): Promise<Business[]> {
   return corpusPromise
 }
 
-/** Called after an admin write so the public queries stop serving stale rows. */
+/**
+ * Called after an admin write so the public queries stop serving stale rows.
+ *
+ * The overlay is cleared alongside the corpus. It caches the phone and image
+ * the database holds for every bundled record, so leaving it in place would
+ * mean an admin saving a new photograph and the page it belongs to still
+ * rendering the previous one — which looks exactly like the save not working.
+ */
 export function invalidateCorpus(): void {
   corpusPromise = null
+  overlayPromise = null
 }
 
 /* ------------------------------------------------------------------ */
@@ -458,11 +511,11 @@ export async function listEmergency(): Promise<EmergencyContact[]> {
 
   if (hasRows(rows)) return (rows as RichListingRow[]).map(listingToEmergency)
 
-  // Bundled presentation, database numbers — see `phoneOverlay`. Every
-  // emergency contact is stored under the `emergency` section.
-  const overlay = await phoneOverlay()
+  // Bundled presentation, database numbers and images — see `listingOverlay`.
+  // Every emergency contact is stored under the `emergency` section.
+  const overlay = await listingOverlay()
   return EMERGENCY_CONTACTS.map((c) =>
-    withDatabasePhone(c, 'emergency', c.name.en, overlay),
+    withDatabaseFields(c, 'emergency', c.name.en, overlay),
   )
 }
 
@@ -569,12 +622,12 @@ export async function listRentals(filters: RentalFilters = {}): Promise<ScoredRe
   })
 }
 
-/** Bundled rentals with database numbers applied. */
+/** Bundled rentals with database numbers and images applied. */
 async function bundledRentals(filters: RentalFilters): Promise<ScoredRental[]> {
-  const overlay = await phoneOverlay()
+  const overlay = await listingOverlay()
   return filterRentalsLocally(filters).map((scored) => ({
     ...scored,
-    rental: withDatabasePhone(scored.rental, 'rentals', scored.rental.title.en, overlay),
+    rental: withDatabaseFields(scored.rental, 'rentals', scored.rental.title.en, overlay),
   }))
 }
 
@@ -646,11 +699,21 @@ export async function loadHealthcare(): Promise<HealthRecord[]> {
     if (!hasRows(rows)) {
       // Healthcare contacts nest the number inside `contact`, so the shared
       // helper does not fit; the identity and the intent are the same.
-      const overlay = await phoneOverlay()
+      const overlay = await listingOverlay()
       return HEALTH_RECORDS.map((r) => {
-        const phone = overlay.get(listingKey('healthcare', r.name.en))
-        if (!phone || phone === r.contact?.phone) return r
-        return { ...r, contact: { ...(r.contact ?? {}), phone } }
+        const found = overlay.get(listingKey('healthcare', r.name.en))
+        if (!found) return r
+
+        const phone = found.phone && found.phone !== r.contact?.phone ? found.phone : undefined
+        const imageUrl =
+          found.imageUrl && found.imageUrl !== r.imageUrl ? found.imageUrl : undefined
+        if (!phone && !imageUrl) return r
+
+        return {
+          ...r,
+          ...(phone ? { contact: { ...(r.contact ?? {}), phone } } : {}),
+          ...(imageUrl ? { imageUrl } : {}),
+        }
       })
     }
 
@@ -692,6 +755,7 @@ export async function loadHealthcare(): Promise<HealthRecord[]> {
 
 export function invalidateHealthcare(): void {
   healthPromise = null
+  overlayPromise = null
 }
 
 export async function getRentalBySlug(slug: string): Promise<Rental | null> {
@@ -731,9 +795,12 @@ export async function listActiveListings(section?: string): Promise<Listing[]> {
   // an empty list is the honest answer.
   if (!HAS_BACKEND || !supabase) return []
 
+  // Chosen at runtime rather than fixed: `services` and `maps_url` only exist
+  // once migration 0007 is applied, and naming a column the database does not
+  // have fails the entire query rather than one field. See listing-columns.ts.
   let q = supabase
     .from('listings')
-    .select(LISTING_SELECT)
+    .select(await listingSelect())
     .eq('status', 'active')
     .order('display_order', { ascending: true, nullsFirst: false })
     // A stable tiebreak within one display_order, so equal values do not
@@ -779,7 +846,7 @@ export async function getListingById(id: string | number): Promise<Listing | nul
 
   const { data, error } = await supabase
     .from('listings')
-    .select(LISTING_SELECT)
+    .select(await listingSelect())
     .eq('id', numeric)
     .eq('status', 'active')
     // maybeSingle, not single: "no such row" is an ordinary outcome for a URL

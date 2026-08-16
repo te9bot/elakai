@@ -10,7 +10,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { CallButton } from '@/components/call-button'
-import { ListingArt } from '@/components/listing-art'
+import { ListingPhoto } from '@/components/listing-photo'
 import { VerifiedBadge } from '@/components/status'
 import { AREA_MAP, CATEGORY_MAP } from '@/data/categories'
 import type { Rental } from '@/data/types'
@@ -93,7 +93,9 @@ export function RentalDetailSheet({
 
         <SheetBody>
           <div className="relative overflow-hidden rounded-card">
-            <ListingArt
+            <ListingPhoto
+              src={rental.imageUrl}
+              alt={L(rental.title)}
               seed={rental.imageSeed}
               icon={cat.icon}
               paletteIndex={theme.paletteIndex}

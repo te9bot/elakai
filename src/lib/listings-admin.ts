@@ -1,5 +1,12 @@
 import { requireSupabase } from './supabase'
-import { LISTING_SELECT, toListing, type Listing, type ListingRow, type ListingStatus } from './listings'
+import {
+  fromServiceList,
+  toListing,
+  type Listing,
+  type ListingRow,
+  type ListingStatus,
+} from './listings'
+import { listingSelect, stripMissingColumns } from './listing-columns'
 import { toStoredPhone } from './phone'
 
 /* ==========================================================================
@@ -149,11 +156,43 @@ export async function uploadListingImage(file: File): Promise<string> {
     upsert: false,
     cacheControl: '3600',
   })
-  if (error) throw new Error(friendly(error.message))
+  if (error) {
+    console.error(
+      `[elakai] image upload failed.\n  bucket: ${IMAGE_BUCKET}\n  path: ${path}\n  reason: ${error.message}`,
+    )
+    throw new Error(friendly(error.message))
+  }
 
   const { data } = db.storage.from(IMAGE_BUCKET).getPublicUrl(path)
-  if (!data?.publicUrl) throw new Error('The image uploaded but no public URL came back.')
-  return data.publicUrl
+  const publicUrl = data?.publicUrl?.trim()
+
+  /*
+   * The object is in the bucket at this point, so a failure here is the one
+   * that used to be invisible: the upload reported success, the row was saved,
+   * and the site had nothing to render. It is reported loudly and it stops the
+   * save, because writing the row with a null image would silently discard an
+   * image the admin can see they just uploaded.
+   */
+  if (!publicUrl) {
+    console.error(
+      `[elakai] image uploaded but no public URL came back.\n` +
+        `  bucket: ${IMAGE_BUCKET}\n  path: ${path}\n` +
+        `  The object is in storage; the URL could not be derived from it.`,
+    )
+    throw new Error('The image uploaded but no public URL came back.')
+  }
+
+  // A public URL that does not point back into this bucket means the client is
+  // configured against a different project than the one being written to, which
+  // would store a URL that resolves to nothing.
+  if (!publicUrl.includes(PUBLIC_PREFIX)) {
+    console.error(
+      `[elakai] image URL does not match the expected storage path.\n` +
+        `  expected to contain: ${PUBLIC_PREFIX}\n  got: ${publicUrl}`,
+    )
+  }
+
+  return publicUrl
 }
 
 const PUBLIC_PREFIX = `/storage/v1/object/public/${IMAGE_BUCKET}/`
@@ -241,7 +280,7 @@ export async function adminListListings(params: AdminListParams = {}): Promise<L
   const { search, section, category, status = 'all', sort = 'display_order', ascending = true } = params
 
   const db = requireSupabase()
-  let q = db.from('listings').select(LISTING_SELECT)
+  let q = db.from('listings').select(await listingSelect())
 
   if (section) q = q.eq('section', section)
   if (category) q = q.eq('category', category)
@@ -291,7 +330,7 @@ export async function adminGetListing(id: string | number): Promise<Listing | nu
 
   const { data, error } = await requireSupabase()
     .from('listings')
-    .select(LISTING_SELECT)
+    .select(await listingSelect())
     .eq('id', numeric)
     .maybeSingle()
 
@@ -325,7 +364,7 @@ export async function fetchListingStats(): Promise<ListingStats> {
     base(),
     base().eq('status', 'active'),
     base().not('image_url', 'is', null).neq('image_url', ''),
-    db.from('listings').select(LISTING_SELECT).order('updated_at', { ascending: false, nullsFirst: false }).limit(5),
+    db.from('listings').select(await listingSelect()).order('updated_at', { ascending: false, nullsFirst: false }).limit(5),
     // One column for every active row, counted here rather than as one COUNT
     // per section: five HEAD requests cost five round trips, and this is a
     // single short column whose whole result is smaller than their headers.
@@ -371,6 +410,9 @@ export type ListingInput = {
   price: string
   availability: string
   image_url: string | null
+  /** Migration 0007. Dropped before the write when the column is absent. */
+  services: string[]
+  maps_url: string
   status: ListingStatus
   display_order: number
 }
@@ -398,6 +440,10 @@ function toRow(input: ListingInput) {
     price: nullable(input.price),
     availability: nullable(input.availability),
     image_url: input.image_url,
+    // Stored as { bn, en } pairs so the rich mappers read it unchanged, and
+    // null rather than [] for an empty list — see `fromServiceList`.
+    services: fromServiceList(input.services),
+    maps_url: nullable(input.maps_url),
     status: input.status,
     display_order: Number.isFinite(input.display_order) ? input.display_order : 0,
   }
@@ -405,10 +451,14 @@ function toRow(input: ListingInput) {
 
 export async function createListing(input: ListingInput): Promise<Listing> {
   const db = requireSupabase()
+  // Stripped before the write, not after: Postgres rejects an INSERT that names
+  // a column the table does not have, so without this an admin could not save
+  // any listing at all on a project that has yet to apply migration 0007 —
+  // not merely one that filled in the two new fields.
   const { data, error } = await db
     .from('listings')
-    .insert(toRow(input))
-    .select(LISTING_SELECT)
+    .insert(await stripMissingColumns(toRow(input)))
+    .select(await listingSelect())
     .single()
 
   if (error) throw new Error(friendly(error.message))
@@ -424,9 +474,12 @@ export async function updateListing(id: number, input: ListingInput): Promise<Li
   const db = requireSupabase()
   const { data, error } = await db
     .from('listings')
-    .update({ ...toRow(input), updated_at: new Date().toISOString() })
+    .update({
+      ...(await stripMissingColumns(toRow(input))),
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', id)
-    .select(LISTING_SELECT)
+    .select(await listingSelect())
     .single()
 
   if (error) throw new Error(friendly(error.message))

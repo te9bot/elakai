@@ -3,7 +3,7 @@ import { ChevronRight, MapPin } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Rating } from '@/components/ui/rating'
 import { CallButton } from '@/components/call-button'
-import { ListingArt } from '@/components/listing-art'
+import { ListingPhoto } from '@/components/listing-photo'
 import { OpenStatus, VerifiedBadge } from '@/components/status'
 import { CATEGORY_MAP } from '@/data/categories'
 import type { ScoredBusiness } from '@/data/types'
@@ -36,7 +36,9 @@ export function BusinessCard({
         to={`/business/${b.slug}`}
         className="group flex gap-4 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
       >
-        <ListingArt
+        <ListingPhoto
+          src={b.imageUrl}
+          alt={L(b.name)}
           seed={b.imageSeed}
           icon={cat.icon}
           className="size-20 shrink-0 sm:size-24"
@@ -108,7 +110,14 @@ export function BusinessRailCard({ result }: { result: ScoredBusiness }) {
         className="group block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
       >
         <div className="relative">
-          <ListingArt seed={b.imageSeed} icon={cat.icon} rounded={false} className="h-32 w-full" />
+          <ListingPhoto
+            src={b.imageUrl}
+            alt={L(b.name)}
+            seed={b.imageSeed}
+            icon={cat.icon}
+            rounded={false}
+            className="h-32 w-full"
+          />
           {b.verified && (
             <div className="absolute left-3 top-3">
               <VerifiedBadge />
