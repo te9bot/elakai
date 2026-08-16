@@ -285,6 +285,61 @@ Also worth checking against the publishing authority: id 98
 
 ---
 
+## STEP 11 — Migration 0007 (WRITE — schema only)
+
+**Independent of everything above.** It can be run first, last, or on its own,
+and the app works before and after either way — see the note at the end of this
+section. `services` and `maps_url` are what the admin form's Services editor and
+Google Maps link field write to.
+
+**File:** `supabase/migrations/0007_listing_services_and_map.sql`. In full it is
+two statements:
+
+```sql
+alter table public.listings add column if not exists services jsonb;
+alter table public.listings add column if not exists maps_url text;
+```
+
+- **Changes:** adds two nullable columns. No existing column is read or written,
+  so every row keeps every value it has.
+- **Rows affected:** 0. Both columns are null on all 147 rows until somebody
+  edits a listing.
+- **Why safe:** additive and `if not exists`, so it is safe to run more than
+  once. `services` is already declared in 0004 — restating it here is what makes
+  this file work on a project that has not applied 0004, and the type is
+  identical so the two cannot disagree.
+- **Reversible:** yes — `alter table public.listings drop column maps_url;` and
+  the same for `services`. Dropping `services` after 0004 has been applied would
+  also drop the imported service lists, so drop only what this file added.
+
+### Verify
+
+```sql
+-- Expect two rows: services | jsonb, maps_url | text.
+select column_name, data_type
+from information_schema.columns
+where table_schema = 'public' and table_name = 'listings'
+  and column_name in ('services', 'maps_url')
+order by column_name;
+```
+
+### The app does not require this migration
+
+`src/lib/listing-columns.ts` asks the database once whether the two columns
+exist and widens its select only if they do. Writes are stripped the same way,
+because Postgres rejects an INSERT naming a column that is not there — without
+that, an admin could not save *any* listing on a project missing 0007, not just
+one that filled in the new fields.
+
+That matters because every listing read names its columns explicitly, so one
+missing column fails the whole query rather than degrading a single field: the
+directory, the admin table and every section that reads them would go to their
+error state together. Asking first is what makes "deploy then migrate" and
+"migrate then deploy" equivalent. Until it is applied, the console says so once
+per session and the two fields stay hidden.
+
+---
+
 ## What changes in the app, and what does not
 
 **No code change is required for the cutover.** The read layer already probes
