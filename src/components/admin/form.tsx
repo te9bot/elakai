@@ -1,4 +1,7 @@
-import { useId, type ReactNode } from 'react'
+import { useId, useState, type ReactNode } from 'react'
+import { Plus, X } from 'lucide-react'
+
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 
@@ -156,6 +159,117 @@ export function ToggleField({
           {hint && <span className="mt-0.5 block text-meta text-ink-subtle">{hint}</span>}
         </span>
       </label>
+    </div>
+  )
+}
+
+/**
+ * An editable list of short strings — the services a listing offers.
+ *
+ * A list, not a textarea of comma-separated values, for the reason stated at
+ * the top of this file: an admin is never asked to type structured text. A
+ * comma-separated field looks simpler until somebody's service is "X-ray, CT
+ * and MRI", at which point the separator silently splits one entry into three
+ * and nothing tells them.
+ *
+ * Entries are added with the button or by pressing Enter, which is what a
+ * chip-style input trains people to expect. Enter is intercepted rather than
+ * left to submit the surrounding form — finishing a service is not finishing
+ * the listing, and a form that saves when you meant to add a row is worse than
+ * one with an extra button.
+ */
+export function ServiceListField({
+  label,
+  hint,
+  values,
+  onChange,
+  disabled,
+  placeholder,
+}: {
+  label: string
+  hint?: string
+  values: string[]
+  onChange: (next: string[]) => void
+  disabled?: boolean
+  placeholder?: string
+}) {
+  const id = useId()
+  const hintId = hint ? `${id}-hint` : undefined
+  const [draft, setDraft] = useState('')
+
+  function add() {
+    const value = draft.trim()
+    if (!value) return
+    // Case-insensitive, so "Blood test" and "blood test" cannot both be added
+    // and then render as two identical tags on the public page.
+    if (values.some((v) => v.toLowerCase() === value.toLowerCase())) {
+      setDraft('')
+      return
+    }
+    onChange([...values, value])
+    setDraft('')
+  }
+
+  return (
+    <div className="min-w-0 sm:col-span-2">
+      <label htmlFor={id} className="block text-meta font-bold text-ink-muted">
+        {label}
+      </label>
+
+      <div className="mt-1.5 flex gap-2">
+        <Input
+          id={id}
+          aria-describedby={hintId}
+          value={draft}
+          disabled={disabled}
+          placeholder={placeholder}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return
+            e.preventDefault()
+            add()
+          }}
+          className="min-w-0 flex-1"
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={disabled || !draft.trim()}
+          onClick={add}
+          className="shrink-0"
+        >
+          <Plus aria-hidden="true" />
+          Add
+        </Button>
+      </div>
+
+      {hint && (
+        <p id={hintId} className="mt-1.5 text-meta text-ink-subtle">
+          {hint}
+        </p>
+      )}
+
+      {values.length > 0 && (
+        <ul className="mt-3 flex flex-wrap gap-2">
+          {values.map((value, i) => (
+            <li
+              key={`${value}-${i}`}
+              className="inline-flex max-w-full items-center gap-1.5 rounded-pill bg-surface-2 py-1 pl-3 pr-1 text-meta font-semibold text-ink"
+            >
+              <span className="min-w-0 break-words">{value}</span>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => onChange(values.filter((_, at) => at !== i))}
+                aria-label={`Remove ${value}`}
+                className="grid size-6 shrink-0 place-items-center rounded-full text-ink-subtle transition-colors hover:bg-danger-soft hover:text-danger-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-40"
+              >
+                <X className="size-3.5" aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

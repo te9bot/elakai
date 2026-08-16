@@ -1,0 +1,79 @@
+-- =============================================================================
+-- 0007 — services and the map link
+--
+-- STATUS: NOT APPLIED. Additive only. Safe to run more than once.
+--
+-- WHY THIS EXISTS
+--
+-- The admin form asks an editor for a listing's services and for a Google Maps
+-- link. Neither had anywhere to go. `services` is declared in 0004; `maps_url`
+-- was declared nowhere, so an editor pasting a map share link had to put it in
+-- `location` — the area/upazila field — where it rendered on the public site as
+-- sixty characters of raw URL sitting where "Kushtia Sadar" belongs.
+--
+-- NUMBERING
+--
+-- 0006 is deliberately skipped. `supabase/0006_backfill_listings.sql` already
+-- claims that number outside this directory, and two files numbered 0006 in one
+-- project is exactly the ambiguity a sequence is supposed to prevent.
+--
+-- ORDER OF APPLICATION
+--
+--   0004, then 0005, then this. Applying this alone is harmless and gives the
+--   two columns below, but leaves the directory without slug, coordinates and
+--   hours, so the read layer keeps serving the bundled dataset — see
+--   `hasRichSchema` in src/lib/api.ts.
+--
+-- THE APPLICATION DOES NOT REQUIRE THIS MIGRATION
+--
+-- Both columns are optional at the read layer. `src/lib/listing-columns.ts`
+-- asks the database once whether they exist and widens its select only if they
+-- do, so a deploy that lands before this file is applied keeps working and the
+-- two fields simply stay hidden. Apply it and they appear on the next load,
+-- with no second deploy.
+-- =============================================================================
+
+-- ---------------------------------------------------------------------------
+-- Services
+--
+-- Restated with IF NOT EXISTS rather than left to 0004 alone, so this file is
+-- self-contained for a project that applies it without the full rich schema.
+-- The type matches 0004 exactly — jsonb, not text[] — because changing it here
+-- would leave two migrations disagreeing about one column, which is the failure
+-- 0005's header warns about.
+--
+-- Holds an ordered array of bilingual entries, which is what the public
+-- components already read (`jsonArrayOr<Localized>` in src/lib/listings-rich.ts):
+--
+--   [{ "bn": "রক্ত পরীক্ষা", "en": "Blood test" }, …]
+--
+-- The simple admin form is monolingual, so it writes the same string into both
+-- halves. That is the same convention the flat `title` and `description`
+-- columns already follow, where `localized()` falls back to the flat value for
+-- both languages — a record stays readable in Bengali and English rather than
+-- rendering blank in one of them.
+-- ---------------------------------------------------------------------------
+
+alter table public.listings add column if not exists services jsonb;
+
+-- ---------------------------------------------------------------------------
+-- Map link
+--
+-- The URL an editor copies out of Google Maps — a `maps.app.goo.gl` short link
+-- or a full `google.com/maps` URL. Its own column rather than another use of
+-- `location`, because the two answer different questions: `location` is the
+-- area a human reads, `maps_url` is a destination a device opens.
+--
+-- Deliberately NOT a replacement for `lat`/`lng` (0004). Coordinates are what
+-- the site's own maps and distance sorting are built on, and a short link is
+-- opaque — it cannot be measured against, only followed. This is the fallback
+-- for a listing whose position nobody has surveyed, and the Directions control
+-- keeps preferring real coordinates when there are any.
+--
+-- Text with no format constraint, matching every other user-supplied column on
+-- this table: the shape is validated in the admin form, where a bad value can
+-- be explained to the person who typed it, rather than by a CHECK that rejects
+-- a row typed by hand in the Supabase dashboard with a message nobody sees.
+-- ---------------------------------------------------------------------------
+
+alter table public.listings add column if not exists maps_url text;

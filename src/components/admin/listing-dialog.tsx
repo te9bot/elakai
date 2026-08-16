@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Loader2, Save } from 'lucide-react'
 
 import { ConfirmDialog } from '@/components/admin/confirm'
-import { Field, Select, TextArea } from '@/components/admin/form'
+import { Field, Select, ServiceListField, TextArea } from '@/components/admin/form'
 import { ImageUpload, type ImageSelection } from '@/components/admin/image-upload'
-import { AdminModal, ModalFields } from '@/components/admin/modal'
+import { AdminModal, ModalSection, ModalSections } from '@/components/admin/modal'
 import { useToast } from '@/components/admin/toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -50,6 +50,8 @@ type Draft = {
   category: string
   price: string
   availability: string
+  services: string[]
+  maps_url: string
   status: ListingStatus
   display_order: string
 }
@@ -65,6 +67,8 @@ const EMPTY: Draft = {
   category: '',
   price: '',
   availability: '',
+  services: [],
+  maps_url: '',
   status: 'active',
   display_order: '0',
 }
@@ -81,12 +85,34 @@ function draftFrom(listing: Listing): Draft {
     category: listing.category,
     price: listing.price,
     availability: listing.availability,
+    services: listing.services,
+    maps_url: listing.mapsUrl,
     status: listing.status,
     display_order: String(listing.displayOrder),
   }
 }
 
 type Errors = Partial<Record<keyof Draft, string>>
+
+/**
+ * A map link has to be a link, because the public page renders it as an anchor.
+ * Anything else would produce a control that navigates nowhere — or, for a
+ * `javascript:` value, somewhere it should not.
+ */
+function validateMapsUrl(value: string): string | undefined {
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return 'That does not look like a link. Paste the whole URL, starting with https://.'
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    return 'Only http and https links are allowed here.'
+  }
+  return undefined
+}
 
 /** Rules about data the public site would otherwise render badly. */
 function validate(draft: Draft): Errors {
@@ -101,6 +127,8 @@ function validate(draft: Draft): Errors {
   // for the purpose of replacing the placeholder.
   const phoneError = validatePhone(draft.phone)
   if (phoneError) errors.phone = phoneError
+  const mapsError = validateMapsUrl(draft.maps_url)
+  if (mapsError) errors.maps_url = mapsError
   if (draft.display_order.trim() && !Number.isFinite(Number(draft.display_order))) {
     errors.display_order = 'Order has to be a number.'
   }
@@ -233,6 +261,8 @@ export function ListingDialog({
         price: draft.price,
         availability: draft.availability,
         image_url: imageUrl,
+        services: draft.services,
+        maps_url: draft.maps_url,
         status: draft.status,
         display_order: Number(draft.display_order.trim() || '0'),
       }
@@ -293,7 +323,9 @@ export function ListingDialog({
       }
     >
       <form id={FORM_ID} onSubmit={submit}>
-          <ModalFields>
+        <ModalSections>
+          {/* ---- Basic information ---- */}
+          <ModalSection title="Basic information">
             <Field label="Section" required>
               {({ id }) => (
                 <Select
@@ -340,7 +372,7 @@ export function ListingDialog({
               )}
             </Field>
 
-            <Field label="Title" required error={errors.title} wide>
+            <Field label="Listing name" required error={errors.title} wide>
               {({ id, describedBy }) => (
                 <Input
                   id={id}
@@ -362,7 +394,13 @@ export function ListingDialog({
                 />
               )}
             </Field>
+          </ModalSection>
 
+          {/* ---- Contact ---- */}
+          <ModalSection
+            title="Contact information"
+            description="Both are optional. Each one that is filled in adds a button to the public card."
+          >
             {/* The hint echoes the number back in the exact form the public
                 site will dial, so "will the call button work?" is answered
                 while typing rather than after publishing. */}
@@ -393,7 +431,13 @@ export function ListingDialog({
                 />
               )}
             </Field>
+          </ModalSection>
 
+          {/* ---- Location ---- */}
+          <ModalSection
+            title="Location"
+            description="The address seeds the Directions button on the public listing."
+          >
             <Field label="Address" wide>
               {({ id }) => (
                 <Input
@@ -405,7 +449,7 @@ export function ListingDialog({
               )}
             </Field>
 
-            <Field label="Location" hint="Area or upazila, e.g. Kushtia Sadar.">
+            <Field label="Area / upazila" hint="For example, Kushtia Sadar.">
               {({ id, describedBy }) => (
                 <Input
                   id={id}
@@ -417,6 +461,28 @@ export function ListingDialog({
               )}
             </Field>
 
+            <Field
+              label="Google Maps link"
+              error={errors.maps_url}
+              hint="Paste the “Share” link from Google Maps. Becomes an “Open in Google Maps” link on the public listing."
+            >
+              {({ id, describedBy }) => (
+                <Input
+                  id={id}
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://maps.app.goo.gl/…"
+                  aria-describedby={describedBy}
+                  value={draft.maps_url}
+                  disabled={busy}
+                  onChange={(e) => set('maps_url', e.target.value)}
+                />
+              )}
+            </Field>
+          </ModalSection>
+
+          {/* ---- Business information ---- */}
+          <ModalSection title="Business information">
             <Field label="Price" hint="Free text — “৳500/visit”, “Negotiable”.">
               {({ id, describedBy }) => (
                 <Input
@@ -429,7 +495,7 @@ export function ListingDialog({
               )}
             </Field>
 
-            <Field label="Availability" hint="“24/7”, “Sat–Thu, 9am–5pm”." wide>
+            <Field label="Availability" hint="“24/7”, “Sat–Thu, 9am–5pm”.">
               {({ id, describedBy }) => (
                 <Input
                   id={id}
@@ -441,13 +507,31 @@ export function ListingDialog({
               )}
             </Field>
 
+            <ServiceListField
+              label="Services"
+              placeholder="Blood test"
+              hint="One service per entry — press Enter or Add. These appear as tags on the public listing."
+              values={draft.services}
+              disabled={busy}
+              onChange={(next) => set('services', next)}
+            />
+          </ModalSection>
+
+          {/* ---- Image ---- */}
+          <ModalSection
+            title="Image"
+            description="This is the photograph the public listing and its card will show. One image per listing."
+          >
             <ImageUpload
               value={image}
               onChange={setImage}
               uploading={uploading}
               disabled={saving && !uploading}
             />
+          </ModalSection>
 
+          {/* ---- Publishing ---- */}
+          <ModalSection title="Publishing">
             <Field label="Status" hint="Inactive listings stay hidden from the public site.">
               {({ id, describedBy }) => (
                 <Select
@@ -480,7 +564,8 @@ export function ListingDialog({
                 />
               )}
             </Field>
-          </ModalFields>
+          </ModalSection>
+        </ModalSections>
       </form>
     </AdminModal>
 

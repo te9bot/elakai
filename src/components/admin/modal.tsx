@@ -147,10 +147,62 @@ export function AdminModal({
  * shrink, and it is the difference between a form that reflows and one that
  * grows a horizontal scrollbar.
  */
-export function ModalFields({ children }: { children: ReactNode }) {
+export function ModalFields({
+  children,
+  className,
+}: {
+  children: ReactNode
+  className?: string
+}) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-[repeat(2,minmax(0,1fr))]">
+    <div
+      className={cn(
+        'grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-[repeat(2,minmax(0,1fr))]',
+        className,
+      )}
+    >
       {children}
     </div>
   )
+}
+
+/**
+ * One labelled group of fields inside a modal body.
+ *
+ * A long form is easier to fill in when it reads as a handful of named groups
+ * than as thirteen equally-weighted rows, and easier to scan back through when
+ * looking for the one field that needs changing. The rule separating groups is
+ * the same hairline the rest of the panel uses, and the eyebrow is the existing
+ * `micro` type token — this adds hierarchy to the form without introducing a
+ * heavier treatment than the surface it sits on. Nested cards were the
+ * alternative and they read as boxes inside a box.
+ *
+ * The leading rule is suppressed on the first group, so the body does not open
+ * with a line immediately under the modal header's own.
+ */
+export function ModalSection({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description?: string
+  children: ReactNode
+}) {
+  return (
+    <section className="border-t border-line pt-6 first:border-t-0 first:pt-0">
+      <h3 className="text-micro uppercase text-ink-subtle">{title}</h3>
+      {description && (
+        <p className="mt-1.5 text-meta leading-relaxed text-pretty text-ink-muted">
+          {description}
+        </p>
+      )}
+      <ModalFields className="mt-4">{children}</ModalFields>
+    </section>
+  )
+}
+
+/** Stacks the groups above with consistent rhythm between them. */
+export function ModalSections({ children }: { children: ReactNode }) {
+  return <div className="space-y-6">{children}</div>
 }

@@ -102,6 +102,13 @@ export type ListingRow = {
   status: string | null
   display_order: number | null
   updated_at: string | null
+  /**
+   * Added by migration 0007. Absent — not null — on a project that has not
+   * applied it, which is why the select that names them is chosen at runtime.
+   * See src/lib/listing-columns.ts.
+   */
+  services?: unknown
+  maps_url?: string | null
 }
 
 /**
@@ -130,6 +137,13 @@ export type Listing = {
   price: string
   availability: string
   imageUrl: string | null
+  /**
+   * What this listing offers, one entry per service. Empty when the column is
+   * absent or unset — see migration 0007.
+   */
+  services: string[]
+  /** A Google Maps link for this listing, or empty. See migration 0007. */
+  mapsUrl: string
   status: ListingStatus
   displayOrder: number
   createdAt: string
@@ -163,6 +177,108 @@ export function matchListings(
   })
 }
 
+/* ------------------------------------------------------------------ */
+/* Presentation helpers                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Whether a stored value is a link rather than a piece of prose.
+ *
+ * `location` and `address` are free text, and editors legitimately paste a
+ * Google Maps share link into either — it is the most precise thing they have.
+ * Rendered as text that is a 60-character URL sitting where an area name
+ * belongs; rendered as a link it is the most useful control on the page. This
+ * tells the two apart so each can be presented as what it is.
+ *
+ * Deliberately narrow: only an explicit http(s) URL counts. A bare "kushtia.gov
+ * .bd" written in an address line is prose, and linkifying it would be guessing.
+ */
+export function isLink(value: string | null | undefined): boolean {
+  if (!value) return false
+  const trimmed = value.trim()
+  if (!/^https?:\/\//i.test(trimmed)) return false
+  try {
+    new URL(trimmed)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The shortest human-readable place for a listing, skipping any value that is
+ * really a URL — so a card's location line never becomes a wall of query
+ * string. Returns an empty string when neither field holds a readable place.
+ */
+export function placeLabel(listing: Pick<Listing, 'location' | 'address'>): string {
+  if (listing.location && !isLink(listing.location)) return listing.location
+  if (listing.address && !isLink(listing.address)) return listing.address
+  return ''
+}
+
+/**
+ * The map link for a listing.
+ *
+ * `maps_url` (migration 0007) is the column that means this, so it wins. The
+ * two fallbacks are for data written before that column existed, when the only
+ * place to put a share link was the area or address field — those rows are
+ * still live and must not lose their link on the day the migration is applied.
+ */
+export function mapLink(
+  listing: Pick<Listing, 'location' | 'address'> & Partial<Pick<Listing, 'mapsUrl'>>,
+): string | null {
+  if (isLink(listing.mapsUrl)) return listing.mapsUrl!.trim()
+  if (isLink(listing.location)) return listing.location.trim()
+  if (isLink(listing.address)) return listing.address.trim()
+  return null
+}
+
+/**
+ * Reads the `services` jsonb column into the flat list this form edits.
+ *
+ * The column is shared with the rich schema, where each entry is a `{ bn, en }`
+ * pair, so both shapes have to be accepted: a row written by 0004's importer
+ * carries objects, one written by this admin form carries the same string in
+ * both halves, and a row typed by hand in the Supabase dashboard might carry
+ * bare strings. Anything else in the array is skipped rather than rendered as
+ * "[object Object]" on the public site.
+ */
+export function toServiceList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  for (const entry of value) {
+    if (typeof entry === 'string') {
+      if (entry.trim()) out.push(entry.trim())
+      continue
+    }
+    if (entry && typeof entry === 'object') {
+      const pair = entry as { en?: unknown; bn?: unknown }
+      const text = typeof pair.en === 'string' && pair.en.trim()
+        ? pair.en
+        : typeof pair.bn === 'string'
+          ? pair.bn
+          : ''
+      if (text.trim()) out.push(text.trim())
+    }
+  }
+  return out
+}
+
+/**
+ * The stored form of a service list.
+ *
+ * Written as `{ bn, en }` pairs so the rich mappers in listings-rich.ts read it
+ * unchanged. The simple form is monolingual, so the one string fills both
+ * halves — the same fallback the flat `title` and `description` columns already
+ * rely on, which keeps a record readable in both languages instead of blank in
+ * one. Null for an empty list, matching how every other optional column here
+ * stores "nothing".
+ */
+export function fromServiceList(services: string[]): { bn: string; en: string }[] | null {
+  const clean = services.map((s) => s.trim()).filter(Boolean)
+  return clean.length ? clean.map((s) => ({ bn: s, en: s })) : null
+}
+
 export function toListing(r: ListingRow): Listing {
   return {
     id: r.id,
@@ -181,6 +297,8 @@ export function toListing(r: ListingRow): Listing {
     price: r.price ?? '',
     availability: r.availability ?? '',
     imageUrl: r.image_url || null,
+    services: toServiceList(r.services),
+    mapsUrl: r.maps_url?.trim() ?? '',
     status: r.status === 'active' ? 'active' : 'inactive',
     displayOrder: r.display_order ?? 0,
     createdAt: r.created_at ?? '',

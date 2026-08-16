@@ -12,16 +12,24 @@ import {
 
 import { CallButton, PhoneLink } from '@/components/call-button'
 import { DirectionsButton } from '@/components/directions-button'
-import { ListingArt } from '@/components/listing-art'
+import { ListingPhoto } from '@/components/listing-photo'
 import { Section } from '@/components/layout/section'
 import { Reveal } from '@/components/reveal'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CATEGORY_MAP } from '@/data/categories'
 import type { CategoryId, IconName } from '@/data/types'
 import { useListing } from '@/hooks/use-queries'
-import { categoryLabel, sectionLabel, type Listing } from '@/lib/listings'
+import {
+  categoryLabel,
+  isLink,
+  mapLink,
+  placeLabel,
+  sectionLabel,
+  type Listing,
+} from '@/lib/listings'
 import { normalizePhone } from '@/lib/phone'
 
 /* ==========================================================================
@@ -46,6 +54,18 @@ import { normalizePhone } from '@/lib/phone'
 function iconFor(category: string): IconName {
   return CATEGORY_MAP[category as CategoryId]?.icon ?? 'store'
 }
+
+/**
+ * The hero's fact chips.
+ *
+ * `Badge` is `whitespace-nowrap` by default, which is right for a one-word
+ * status and wrong here: these carry editor-supplied free text, and a full
+ * street address in a chip that refuses to wrap is 433px wide on a 390px phone
+ * — enough to push the whole document sideways and give every page a horizontal
+ * scrollbar. So the chips wrap, and `items-start` keeps the icon on the first
+ * line rather than floating to the middle of a two-line address.
+ */
+const CHIP = 'max-w-full items-start whitespace-normal text-left'
 
 export default function ListingPage() {
   const { id } = useParams<{ id: string }>()
@@ -99,8 +119,21 @@ function ListingDetail({ listing }: { listing: Listing }) {
   const backTo = listing.section ? sectionPath(listing.section) : '/'
 
   // Every value that could seed a "get directions" link. Preferring the street
-  // address over the area name gives the maps app the more specific of the two.
-  const mapQuery = listing.address || listing.location
+  // address over the area name gives the maps app the more specific of the two,
+  // and a pasted map URL is never handed to it as a search string.
+  const mapQuery = [listing.address, listing.location].find((v) => v && !isLink(v)) ?? ''
+
+  // The shortest honest answer to "where is this?", for the chip beside the
+  // title. The full address still appears in the details card below.
+  const place = placeLabel(listing)
+
+  // An editor who pasted a Google Maps share link gets a real link out of it,
+  // not sixty characters of URL rendered where an area name belongs.
+  const map = mapLink(listing)
+
+  const hasDetails = Boolean(
+    phone.display || listing.email || place || map || listing.availability,
+  )
 
   return (
     <>
@@ -115,33 +148,29 @@ function ListingDetail({ listing }: { listing: Listing }) {
             {listing.section ? sectionLabel(listing.section) : 'Back'}
           </Link>
 
-          <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr] lg:items-start">
+          {/* Identity and image sit side by side on desktop and stack image-first
+              on mobile, so the photograph is never what a phone opens onto —
+              the name and the call button are. `items-start` keeps the two
+              columns top-aligned instead of the shorter one floating centred. */}
+          <div className="grid gap-6 lg:grid-cols-[1.05fr_1fr] lg:items-start">
             <div className="overflow-hidden rounded-card border border-line bg-surface-2">
+              {/* Fixed ratio, so the card reserves its space before the image
+                  decodes and the text beside it does not jump on load. */}
               <div className="relative aspect-[16/10] w-full">
-                {listing.imageUrl ? (
-                  <img
-                    src={listing.imageUrl}
-                    alt={title}
-                    className="size-full object-cover"
-                    // Above the fold on this route, so it is the one image on
-                    // the page that must not be deferred. Lowercase because
-                    // React 18 passes unknown lowercase attributes through but
-                    // warns on the camelCase spelling it does not yet map.
-                    loading="eager"
-                    {...{ fetchpriority: 'high' }}
-                  />
-                ) : (
-                  <ListingArt
-                    seed={listing.id}
-                    icon={iconFor(listing.category)}
-                    rounded={false}
-                    className="size-full"
-                  />
-                )}
+                <ListingPhoto
+                  src={listing.imageUrl}
+                  alt={title}
+                  seed={listing.id}
+                  icon={iconFor(listing.category)}
+                  rounded={false}
+                  priority
+                  className="size-full"
+                />
               </div>
             </div>
 
             <div className="min-w-0">
+              {/* ---- 1. Identity ---- */}
               {listing.category && (
                 <p className="flex items-center gap-1.5 text-meta font-bold uppercase text-primary">
                   <Tag className="size-3.5 shrink-0" aria-hidden="true" />
@@ -151,22 +180,39 @@ function ListingDetail({ listing }: { listing: Listing }) {
 
               <h1 className="mt-2 text-display text-balance">{title}</h1>
 
-              {listing.price && (
-                <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1.5 text-body-sm font-bold text-ink">
-                  <Wallet className="size-4 shrink-0 text-ink-subtle" aria-hidden="true" />
-                  {listing.price}
-                </p>
+              {/* ---- 2. Status and 3. Location ----
+                  One row of chips rather than three stacked paragraphs: these
+                  are the facts a visitor checks at a glance before deciding to
+                  call, and they read faster side by side. */}
+              {(listing.price || listing.availability || place) && (
+                <div className="mt-4 flex flex-wrap items-start gap-2">
+                  {listing.price && (
+                    <Badge variant="primary" size="lg" className={CHIP}>
+                      <Wallet className="mt-0.5" aria-hidden="true" />
+                      {listing.price}
+                    </Badge>
+                  )}
+                  {listing.availability && (
+                    <Badge variant="success" size="lg" className={CHIP}>
+                      <CalendarClock className="mt-0.5" aria-hidden="true" />
+                      {listing.availability}
+                    </Badge>
+                  )}
+                  {place && (
+                    <Badge variant="outline" size="lg" className={CHIP}>
+                      <MapPin className="mt-0.5" aria-hidden="true" />
+                      {place}
+                    </Badge>
+                  )}
+                </div>
               )}
 
-              {listing.description && (
-                <p className="mt-4 whitespace-pre-line text-body leading-relaxed text-pretty text-ink-muted">
-                  {listing.description}
-                </p>
-              )}
-
-              {/* The primary actions. CallButton renders nothing at all when
-                  there is no dialable number, so this row never contains a
-                  control that would do nothing when tapped. */}
+              {/* ---- 4. Main action ----
+                  Directly under the identity block, above the prose: the reason
+                  most people open a directory entry is to call it. CallButton
+                  renders nothing at all when there is no dialable number, so
+                  this row never contains a control that would do nothing when
+                  tapped. */}
               <div className="mt-6 flex flex-wrap gap-2">
                 <CallButton phone={listing.phone} label={title} size="lg" className="min-w-[10rem] flex-1" />
 
@@ -179,7 +225,7 @@ function ListingDetail({ listing }: { listing: Listing }) {
                   address={mapQuery}
                   label={title}
                   size="lg"
-                  className="flex-1"
+                  className="min-w-[10rem] flex-1"
                 />
               </div>
             </div>
@@ -187,11 +233,54 @@ function ListingDetail({ listing }: { listing: Listing }) {
         </div>
       </div>
 
-      {/* ---- Details ---- */}
-      <Section>
+      {/* ---- 5. About, then 6. Contact and location ----
+          One section, two cards, so the vertical rhythm between them is the
+          same `space-y` the rest of the site uses rather than two sections'
+          padding meeting in the middle. */}
+      <Section className="space-y-5">
+        {/* About is its own card rather than a paragraph in the hero: a long
+            description crammed beside the image pushed the call button below
+            the fold on every phone, and that is the one control that must not
+            move. */}
+        {listing.description && (
+          <Reveal>
+            <Card className="p-5 sm:p-6">
+              <h2 className="text-heading">About</h2>
+              <p className="mt-3 whitespace-pre-line text-body leading-relaxed text-pretty text-ink-muted">
+                {listing.description}
+              </p>
+            </Card>
+          </Reveal>
+        )}
+
+        {/* ---- 7. Services ----
+            Tags rather than a bulleted list, matching how the business profile
+            already presents the same field, so one listing does not look like
+            it came from a different site than the next. */}
+        {listing.services.length > 0 && (
+          <Reveal>
+            <Card className="p-5 sm:p-6">
+              <h2 className="text-heading">Services</h2>
+              <ul className="mt-4 flex flex-wrap gap-2">
+                {listing.services.map((service) => (
+                  <li key={service}>
+                    <Badge variant="neutral" size="md" className="max-w-full whitespace-normal">
+                      {service}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </Reveal>
+        )}
+
+        {/* Suppressed entirely when there is nothing to put in it. A listing
+            with only a name is valid, and an empty card under a heading reads
+            as content that failed to load rather than content that is absent. */}
+        {hasDetails && (
         <Reveal>
           <Card className="p-5 sm:p-6">
-            <h2 className="text-heading">Contact & details</h2>
+            <h2 className="text-heading">Contact &amp; location</h2>
 
             <dl className="mt-5 grid gap-5 sm:grid-cols-2">
               {phone.display && (
@@ -216,15 +305,30 @@ function ListingDetail({ listing }: { listing: Listing }) {
                 </Row>
               )}
 
-              {listing.address && (
+              {listing.address && !isLink(listing.address) && (
                 <Row icon={<MapPin className="size-4" aria-hidden="true" />} label="Address">
                   <span className="text-body-sm">{listing.address}</span>
                 </Row>
               )}
 
-              {listing.location && (
+              {listing.location && !isLink(listing.location) && (
                 <Row icon={<Globe className="size-4" aria-hidden="true" />} label="Area">
                   <span className="text-body-sm">{listing.location}</span>
+                </Row>
+              )}
+
+              {/* The pasted map link, as a link. `noopener` because it opens in
+                  a new tab, and `nofollow` because this is editor-supplied. */}
+              {map && (
+                <Row icon={<MapPin className="size-4" aria-hidden="true" />} label="Map">
+                  <a
+                    href={map}
+                    target="_blank"
+                    rel="noopener noreferrer nofollow"
+                    className="rounded text-body-sm font-bold text-primary transition-colors hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    Open in Google Maps
+                  </a>
                 </Row>
               )}
 
@@ -245,6 +349,7 @@ function ListingDetail({ listing }: { listing: Listing }) {
             )}
           </Card>
         </Reveal>
+        )}
       </Section>
     </>
   )

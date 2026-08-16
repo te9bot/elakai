@@ -41,7 +41,13 @@ const SAMPLE: Listing = {
   category: 'electrician',
   price: '450 BDT/visit',
   availability: 'Sat-Thu, 9am-8pm',
-  imageUrl: null,
+  // A real stored URL, so the lab exercises the "existing image" state of the
+  // picker — the one an editor sees on every edit — rather than only the empty
+  // dropzone.
+  imageUrl:
+    'https://cvbwpclogcpbdovrsftj.supabase.co/storage/v1/object/public/elakai-images/listings/2026-08-15-6676aa3c-d960-4ce3-9e36-5f57df84a4df-unnamed.jpg',
+  services: ['House wiring', 'Fan and light fitting', 'Meter installation'],
+  mapsUrl: 'https://maps.app.goo.gl/vShaXmhDVdxMMavF9',
   status: 'active',
   displayOrder: 1,
   createdAt: new Date().toISOString(),

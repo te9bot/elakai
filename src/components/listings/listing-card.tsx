@@ -2,12 +2,12 @@ import { CalendarClock, ChevronRight, MapPin, Mail, Tag } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { CallButton } from '@/components/call-button'
-import { ListingArt } from '@/components/listing-art'
+import { ListingPhoto } from '@/components/listing-photo'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { CATEGORY_MAP } from '@/data/categories'
 import type { CategoryId, IconName } from '@/data/types'
-import { categoryLabel, type Listing } from '@/lib/listings'
+import { categoryLabel, placeLabel, type Listing } from '@/lib/listings'
 import { isDialable } from '@/lib/phone'
 import { cn } from '@/lib/utils'
 
@@ -30,7 +30,9 @@ function iconFor(category: string): IconName {
 
 export function ListingCard({ listing, className }: { listing: Listing; className?: string }) {
   const title = listing.title || 'Untitled listing'
-  const place = listing.location || listing.address
+  // Skips a pasted map URL: a card line is not the place for sixty characters
+  // of link, and the detail page renders it as an actual link instead.
+  const place = placeLabel(listing)
   const dialable = isDialable(listing.phone)
 
   return (
@@ -44,26 +46,18 @@ export function ListingCard({ listing, className }: { listing: Listing; classNam
         className="flex min-w-0 flex-1 flex-col rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       >
         <div className="relative aspect-[16/9] w-full overflow-hidden bg-surface-2">
-          {listing.imageUrl ? (
-            <img
-              src={listing.imageUrl}
-              alt={title}
-              loading="lazy"
-              // Object-cover keeps a portrait upload from letterboxing the card;
-              // the admin preview uses the same crop, so what is chosen there is
-              // what appears here.
-              className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-            />
-          ) : (
-            // No photo is a normal state, not a broken one — the same procedural
-            // art the rest of the directory falls back to.
-            <ListingArt
-              seed={listing.id}
-              icon={iconFor(listing.category)}
-              rounded={false}
-              className="size-full"
-            />
-          )}
+          {/* Object-cover keeps a portrait upload from letterboxing the card.
+              No photo is a normal state, not a broken one, so ListingPhoto
+              falls back to the same procedural art the rest of the directory
+              uses — and logs the URL if a stored one fails to load. */}
+          <ListingPhoto
+            src={listing.imageUrl}
+            alt={title}
+            seed={listing.id}
+            icon={iconFor(listing.category)}
+            rounded={false}
+            className="size-full transition-transform duration-300 group-hover:scale-[1.03]"
+          />
 
           {listing.price && (
             <span className="absolute right-3 top-3 rounded-full bg-surface/90 px-3 py-1 text-meta font-bold text-ink shadow-card backdrop-blur">
