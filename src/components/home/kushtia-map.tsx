@@ -205,13 +205,125 @@ const CATCH_UP = 0.12
 /** Below half a pixel of remaining travel, nothing more is visible. */
 const SETTLED = 0.5
 
-function KushtiaMapImpl({ className }: { className?: string }) {
+/**
+ * How the map is being used, which is the only thing that differs between its
+ * two homes.
+ *
+ * 'backdrop' — behind the public site. Motion comes from the reader: pointer
+ *              tilt and scroll position, exactly as it always has.
+ *
+ * 'panel'    — the left half of the contributor entrance. There is no scroll
+ *              there and often no pointer over it, so the same eight layers are
+ *              driven by a clock instead, and the readability veil lifts because
+ *              nothing is set over the map on that side.
+ *
+ * A variant rather than a second component. The artwork, the projection, the
+ * colours, the theme handling and the layer structure are the thing worth
+ * sharing — duplicating them to get a different motion source is how the two
+ * copies drift apart, and it is the map's identity that has to stay identical
+ * for the auth page to read as part of ELAKAI at all.
+ */
+export type KushtiaMapVariant = 'backdrop' | 'panel'
+
+/**
+ * Continuous drift, for the 'panel' variant.
+ *
+ * WHY OSCILLATION RATHER THAN A TRUE ENDLESS PAN
+ *
+ * A pan that never turns around needs artwork that tiles, and this artwork
+ * deliberately does not: it is one district, drawn where its real coordinates
+ * put it. Repeating it would put a second Kushtia next to the first with a
+ * visible seam between them, which is worse than not travelling.
+ *
+ * So each layer runs a long, slow sine instead. The periods below are all
+ * different and none divides evenly into another, so the layers never realign
+ * and the composition never returns to a pose you just watched — the same
+ * trick the brand panel's planes use. At these periods a full traverse takes
+ * over a minute, which reads as continuous travel rather than as something
+ * swinging back and forth, and it has no reset point at all because a sine has
+ * nowhere to jump.
+ *
+ * X and Y run on different periods so a layer traces a slow Lissajous rather
+ * than a diagonal line.
+ */
+const DRIFT_SECONDS = [67, 59, 53, 47, 43, 61, 37] as const
+
+/** Pixels of travel per unit of depth. The grid moves ~5px, the labels ~70. */
+const DRIFT_AMPLITUDE = 5
+
+function KushtiaMapImpl({
+  className,
+  variant = 'backdrop',
+}: {
+  className?: string
+  variant?: KushtiaMapVariant
+}) {
   const { L } = useI18n()
   const reduced = useReducedMotion()
   const ref = useRef<HTMLDivElement>(null)
   const layerRefs = useRef<(SVGGElement | null)[]>([])
 
+  const panel = variant === 'panel'
+
+  /*
+   * The clock-driven variant. Separate effect from the input-driven one below
+   * so neither has to carry a branch through its whole body, and so the
+   * backdrop's listeners are not merely skipped but never referenced.
+   */
   useEffect(() => {
+    if (!panel || reduced) return
+
+    const nodes = layerRefs.current
+    if (!nodes.length) return
+
+    let frame = 0
+    const start = performance.now()
+
+    function draw(now: number) {
+      frame = requestAnimationFrame(draw)
+      const t = (now - start) / 1000
+
+      // Seven writes, no reads — the same discipline as the backdrop loop, for
+      // the same reason: transforms on an SVG group stay on the compositor as
+      // long as nothing asks the browser to measure in between.
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i]
+        if (!node) continue
+        const depth = LAYER_DEPTHS[i]
+        const period = DRIFT_SECONDS[i] ?? 51
+        const amp = depth * DRIFT_AMPLITUDE
+        const x = Math.sin((t / period) * Math.PI * 2) * amp
+        const y = Math.sin((t / (period * 1.37)) * Math.PI * 2 + i) * amp * 0.55
+        node.style.transform = `translate3d(${x}px, ${y}px, 0)`
+      }
+    }
+
+    // Unlike the backdrop this never settles, so `will-change` is honest here:
+    // something really is moving for the whole life of the page.
+    for (const node of nodes) node?.style.setProperty('will-change', 'transform')
+
+    function onVisibility() {
+      if (document.visibilityState === 'visible') {
+        frame = requestAnimationFrame(draw)
+      } else {
+        cancelAnimationFrame(frame)
+      }
+    }
+
+    frame = requestAnimationFrame(draw)
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      cancelAnimationFrame(frame)
+      document.removeEventListener('visibilitychange', onVisibility)
+      for (const node of nodes) node?.style.removeProperty('will-change')
+    }
+  }, [panel, reduced])
+
+  useEffect(() => {
+    // The backdrop's own driver. Untouched, and inert in the panel variant.
+    if (panel) return
+
     // Through the project's seam, not `matchMedia` directly.
     //
     // `lib/motion.ts` is the site's single answer on reduced motion, and it
@@ -365,7 +477,7 @@ function KushtiaMapImpl({ className }: { className?: string }) {
       // Never leave the hint behind on an unmount mid-animation.
       for (const node of nodes) node?.style.removeProperty('will-change')
     }
-  }, [reduced])
+  }, [reduced, panel])
 
   /**
    * Assigns each animated group its slot in `layerRefs`.
@@ -418,21 +530,28 @@ function KushtiaMapImpl({ className }: { className?: string }) {
               so it settles to a light overall wash that keeps contrast off the
               text without deciding where the text will be. Cards and panels
               carry their own opaque surfaces on top of it. */}
+          {/* The panel variant lifts the veil to roughly a third of the
+              backdrop's. There is no body copy over the map on the auth page —
+              only a wordmark and one line, both of which carry their own
+              contrast — so the veil there is only keeping the map from
+              competing with the form beside it, not making text legible on top
+              of it. Left at full strength it washed the district out to the
+              point that reusing the real map stopped being visible at all. */}
           <linearGradient id="km-veil" x1="0" y1="0" x2="0" y2="1">
             <stop
               offset="0%"
               className="[stop-color:#FFFFFF] dark:[stop-color:#0F172A]"
-              stopOpacity="0.62"
+              stopOpacity={panel ? '0.2' : '0.62'}
             />
             <stop
               offset="45%"
               className="[stop-color:#FFFFFF] dark:[stop-color:#0F172A]"
-              stopOpacity="0.5"
+              stopOpacity={panel ? '0.14' : '0.5'}
             />
             <stop
               offset="100%"
               className="[stop-color:#FFFFFF] dark:[stop-color:#0F172A]"
-              stopOpacity="0.66"
+              stopOpacity={panel ? '0.24' : '0.66'}
             />
           </linearGradient>
           <pattern id="km-grid" width="60" height="60" patternUnits="userSpaceOnUse">

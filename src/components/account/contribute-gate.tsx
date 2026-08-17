@@ -1,24 +1,11 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LogIn, Plus, UserPlus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { useAccount } from '@/lib/auth'
 import { rememberIntent, type ContributeIntent } from '@/lib/contribute-intent'
-import {
-  categoryLabel,
-  sectionForCategory,
-  sectionSpec,
-  withArticle,
-} from '@/lib/submission-fields'
-import logo from '../../../assets/elakai-logo.png'
+import { sectionForCategory } from '@/lib/submission-fields'
 
 /* ==========================================================================
  * "Contribute information".
@@ -31,16 +18,24 @@ import logo from '../../../assets/elakai-logo.png'
  * Not a wall. It is triggered by an action — pressing Add a pharmacy — and
  * never by arriving somewhere. There is no route it guards except /contribute,
  * no interstitial on first visit, and no redirect out of a page someone is
- * reading. A visitor who dismisses it is exactly where they were.
+ * reading.
  *
- * WHY A DIALOG RATHER THAN A REDIRECT TO /account/signup
+ * IT USED TO OPEN A DIALOG. IT NOW NAVIGATES.
  *
- * Because the third option matters as much as the first two. Sending a guest to
- * a signup page makes "no thanks" a back button, and a back button after a
- * redirect is a page load. A dialog makes Continue browsing a first-class
- * choice sitting next to the other two, costing nothing, which is what an open
- * information platform should feel like. Signed-in contributors never see it at
- * all — for them the same call goes straight to the form.
+ * The previous version put a small glass modal over whatever you were reading,
+ * offering Create account / Log in / Continue browsing. The argument for it was
+ * that third button: a dialog makes "no thanks" cost nothing, where a redirect
+ * makes it a back button and a page load.
+ *
+ * That argument was right about the cost and wrong about the subject. The
+ * modal made the contributor side of ELAKAI feel like an interruption to the
+ * site instead of a part of it, and the brand had nowhere to live in a 26rem
+ * box. So Contribute now goes to the full contributor entrance at
+ * /account/login, and the cost the dialog was protecting is paid back by
+ * "Continue browsing" sitting first in that page's tab order.
+ *
+ * Signed-in contributors never see any of it — for them the same call goes
+ * straight to the submission form.
  * ========================================================================== */
 
 /** Where an action sends someone, once they are signed in. */
@@ -55,8 +50,8 @@ export type ContributeTarget = {
 
 type GateValue = {
   /**
-   * Start a contribution. Signed in, this navigates; signed out, it opens the
-   * dialog and remembers what was being attempted.
+   * Start a contribution. Signed in, this goes to the form; signed out, it
+   * goes to the contributor entrance and remembers what was being attempted.
    */
   contribute: (target?: ContributeTarget) => void
 }
@@ -79,7 +74,6 @@ function toIntent(target: ContributeTarget | undefined): ContributeIntent {
 export function ContributeGateProvider({ children }: { children: React.ReactNode }) {
   const { status } = useAccount()
   const navigate = useNavigate()
-  const [pending, setPending] = useState<ContributeIntent | null>(null)
 
   const contribute = useCallback(
     (target?: ContributeTarget) => {
@@ -94,23 +88,40 @@ export function ContributeGateProvider({ children }: { children: React.ReactNode
         return
       }
 
-      // Written down before the dialog opens rather than when a button in it is
-      // pressed, so the intent survives even if they leave via the browser's
-      // own controls and come back signed in from somewhere else.
+      /*
+       * Stored as well as put in the query string.
+       *
+       * The URL carries it through the sign-in itself, and the stored copy is
+       * the backstop for the OAuth round-trip, which navigates to another
+       * origin and back and drops anything held in memory. Written before
+       * leaving rather than when a button is pressed, so it survives someone
+       * who wanders off and returns signed in from somewhere else entirely.
+       */
       rememberIntent(intent)
-      setPending(intent)
+
+      const params = new URLSearchParams({ next: intent.path })
+      if (intent.section) params.set('section', intent.section)
+      if (intent.category) params.set('category', intent.category)
+
+      /*
+       * Sign in rather than sign up, even though most people arriving here do
+       * not have an account yet. The login screen carries a "Create an account"
+       * link and the signup screen carries the reverse, so either lands
+       * everybody one click from the right one — but only login is also correct
+       * for the returning contributor, who is the person that would be actively
+       * annoyed by being shown the wrong form.
+       *
+       * Both screens handle an unconfigured or un-migrated backend themselves,
+       * which is what the dialog's second state used to do.
+       */
+      navigate(`/account/login?${params.toString()}`)
     },
     [status, navigate],
   )
 
   const value = useMemo<GateValue>(() => ({ contribute }), [contribute])
 
-  return (
-    <GateContext.Provider value={value}>
-      {children}
-      <GateDialog intent={pending} onClose={() => setPending(null)} />
-    </GateContext.Provider>
-  )
+  return <GateContext.Provider value={value}>{children}</GateContext.Provider>
 }
 
 export function useContribute(): GateValue {
@@ -119,97 +130,6 @@ export function useContribute(): GateValue {
   // Contribute button can be rendered outside the provider — in the admin
   // panel, in a lab entry point — without taking the screen down with it.
   return ctx ?? { contribute: () => {} }
-}
-
-/* ------------------------------------------------------------------ */
-/* The dialog                                                          */
-/* ------------------------------------------------------------------ */
-
-function GateDialog({
-  intent,
-  onClose,
-}: {
-  intent: ContributeIntent | null
-  onClose: () => void
-}) {
-  const navigate = useNavigate()
-  const { schemaReady, status } = useAccount()
-
-  // The category when the caller named one — "Add a pharmacy" is a better
-  // title than "Add a healthcare place" — falling back to the section's own
-  // written-out phrase. See `addPhrase` in lib/submission-fields.ts for why
-  // this is not just the label with an article glued on.
-  const what = intent?.category
-    ? withArticle(categoryLabel(intent.category).toLowerCase())
-    : intent?.section
-      ? sectionSpec(intent.section).addPhrase
-      : null
-
-  function go(to: 'signup' | 'login') {
-    if (!intent) return
-    const params = new URLSearchParams({ next: intent.path })
-    if (intent.section) params.set('section', intent.section)
-    if (intent.category) params.set('category', intent.category)
-    onClose()
-    navigate(`/account/${to}?${params.toString()}`)
-  }
-
-  return (
-    <Dialog open={!!intent} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-[26rem]">
-        <DialogHeader>
-          <div className="flex flex-col items-center text-center">
-            <img
-              src={logo}
-              alt=""
-              width={512}
-              height={471}
-              className="h-12 w-auto object-contain"
-            />
-            <DialogTitle className="mt-4">
-              {what ? `Add ${what}` : 'Contribute to ELAKAI'}
-            </DialogTitle>
-            <DialogDescription className="mt-1.5">
-              {schemaReady
-                ? 'Create a free account to submit local information. Everything you send is checked by an administrator before it goes live.'
-                : 'Contributions are not switched on for this site yet. Everything you can read here stays free to read.'}
-            </DialogDescription>
-          </div>
-        </DialogHeader>
-
-        {schemaReady && status !== 'unconfigured' ? (
-          <div className="mt-6 space-y-3">
-            <Button size="lg" block onClick={() => go('signup')}>
-              <UserPlus aria-hidden="true" />
-              Create account
-            </Button>
-            <Button variant="secondary" size="lg" block onClick={() => go('login')}>
-              <LogIn aria-hidden="true" />
-              Log in
-            </Button>
-            {/*
-             * Third, and quiet, but present. §4 is explicit that closing this
-             * and carrying on has to be an option that is offered rather than
-             * one that has to be found.
-             */}
-            <Button variant="ghost" size="md" block onClick={onClose}>
-              Continue browsing
-            </Button>
-
-            <p className="pt-1 text-center text-meta text-ink-subtle">
-              Approved information earns the contributor 50 points.
-            </p>
-          </div>
-        ) : (
-          <div className="mt-6">
-            <Button variant="secondary" size="lg" block onClick={onClose}>
-              Continue browsing
-            </Button>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  )
 }
 
 /* ------------------------------------------------------------------ */

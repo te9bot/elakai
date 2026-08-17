@@ -1,37 +1,46 @@
 import { Link } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 
+import { AuthBrandPanel } from '@/components/account/auth-brand-panel'
 import { cn } from '@/lib/utils'
 import logo from '../../../assets/elakai-logo.png'
 
 /* ==========================================================================
  * The frame every account screen sits in.
  *
+ * A SPLIT, NOT A CARD ON A WASH
+ *
+ * This was a single centred glass card, reached from a modal. Both are gone.
+ * Pressing Contribute now navigates here, and here is a whole page: the brand
+ * plate on the left (components/account/auth-brand-panel.tsx) and the form on
+ * the right. The reasoning for dropping the modal is written up in that file;
+ * the reasoning for the layout is that a full page is what makes the
+ * contributor side read as part of ELAKAI rather than as an interruption to
+ * it.
+ *
+ * WHAT SURVIVED THE REWRITE, AND WHY
+ *
+ * "Continue browsing", still first in the DOM and first in the tab order. The
+ * modal's third button was the best thing about it — a visitor asked to sign
+ * in must be able to decline and carry on reading — and losing the modal must
+ * not mean losing that. It is a link at the top of the form column now.
+ *
+ * ONE COLUMN BELOW `lg`
+ *
+ * The brand plate is `hidden lg:block`, so a phone gets the form and nothing
+ * competing with it. That is not a compromise: on a 390px screen a decorative
+ * half would push the password field below the fold, and the lockup above the
+ * heading already carries the identity. The animation is desktop-only by the
+ * same argument — it is the one place there is room for it to be immersive.
+ *
  * ON THE GLASS (§10, §55)
  *
  * The brief asks for glassmorphism and then, twice, asks for it to be
- * restrained. This project already had that argument with itself and wrote the
- * answer down in src/index.css, above `.glass-surface`: *if everything is
- * glass, nothing is emphasised.* Before this file there were exactly two glass
- * surfaces on the whole site — the top nav on scroll, and the action bar.
- *
- * This is the third, and the case for it is that an auth screen is the one
- * place with nothing else to look at. There is no content for a translucent
- * panel to compete with, so the depth reads as depth rather than as noise. It
- * uses the existing `.glass-surface` utility and the existing tokens rather
- * than a new palette, which is what keeps it recognisably ELAKAI instead of a
- * generic frosted login.
- *
- * What it deliberately is not: a glowing card, a gradient border, a neon
- * accent, or a second brand. One translucent panel, one soft primary wash
- * behind it, and the real lockup.
- *
- * ON THE BACKDROP
- *
- * The wash is `--primary` at low alpha, the same hue the buttons and links
- * already use. Two blurred ellipses rather than a full-bleed gradient, because
- * a gradient across the whole viewport is what makes a page feel like a
- * template — this reads as light falling on the canvas.
+ * restrained. src/index.css already settled that argument above
+ * `.glass-surface`: *if everything is glass, nothing is emphasised.* The card
+ * no longer needs to be glass now that it sits on a plain column beside a
+ * loud panel — glass over nothing is just a lighter grey — so the surface is
+ * honest and the depth on this screen comes from the split itself.
  * ========================================================================== */
 
 export function AuthShell({
@@ -39,10 +48,10 @@ export function AuthShell({
   subtitle,
   children,
   footer,
-  /** Shown above the card. Lets someone abandon the flow and keep browsing. */
+  /** Shown above the form. Lets someone abandon the flow and keep browsing. */
   backTo = '/',
   backLabel = 'Continue browsing',
-  /** Widens the card for the two-column signup. */
+  /** Widens the form column for the two-column signup. */
   wide = false,
 }: {
   title: string
@@ -54,79 +63,55 @@ export function AuthShell({
   wide?: boolean
 }) {
   return (
-    <main className="relative grid min-h-dvh place-items-center overflow-hidden bg-canvas px-4 py-10">
-      <Backdrop />
+    <main className="grid min-h-dvh bg-canvas lg:grid-cols-[1.05fr_1fr]">
+      <AuthBrandPanel />
 
-      <div className={cn('relative w-full', wide ? 'max-w-md' : 'max-w-sm')}>
-        {/*
-         * The way out, above everything else on the screen.
-         *
-         * §4 of the brief: a visitor asked to sign in must always be able to
-         * close the request and carry on reading. Putting it first in the DOM
-         * means it is also the first thing a keyboard or screen reader reaches,
-         * rather than something to be found after the form.
-         */}
-        <Link
-          to={backTo}
-          className={cn(
-            'mb-6 inline-flex items-center gap-1.5 rounded-control px-1 py-1 text-meta font-semibold',
-            'text-ink-subtle transition-colors hover:text-ink',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-          )}
-        >
-          <ArrowLeft className="size-4" aria-hidden="true" />
-          {backLabel}
-        </Link>
-
-        <div className="glass-surface rounded-card p-6 sm:p-8">
-          <div className="flex flex-col items-center text-center">
-            <img
-              src={logo}
-              alt="ELAKAI"
-              width={512}
-              height={471}
-              className="h-16 w-auto object-contain"
-            />
-            <h1 className="mt-4 text-title">{title}</h1>
-            {subtitle && (
-              <p className="mt-1.5 max-w-[34ch] text-body-sm text-ink-muted">{subtitle}</p>
+      <div className="flex min-h-dvh flex-col justify-center px-5 py-10 sm:px-8 lg:min-h-0 lg:px-12">
+        <div className={cn('mx-auto w-full', wide ? 'max-w-md' : 'max-w-sm')}>
+          {/*
+           * The way out, above everything else in the column.
+           *
+           * §4 of the brief: a visitor asked to sign in must always be able to
+           * close the request and carry on reading. First in the DOM means it
+           * is also the first thing a keyboard or screen reader reaches,
+           * rather than something to be found after the form.
+           */}
+          <Link
+            to={backTo}
+            className={cn(
+              'mb-8 inline-flex items-center gap-1.5 rounded-control px-1 py-1 text-meta font-semibold',
+              'text-ink-subtle transition-colors hover:text-ink',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
             )}
-          </div>
+          >
+            <ArrowLeft className="size-4" aria-hidden="true" />
+            {backLabel}
+          </Link>
 
-          <div className="mt-7">{children}</div>
+          {/*
+           * The lockup, on small screens only. Above `lg` the brand plate is
+           * showing the mark at 22rem two inches to the left, and repeating it
+           * here would read as a mistake.
+           */}
+          <img
+            src={logo}
+            alt="ELAKAI"
+            width={512}
+            height={471}
+            className="mb-6 h-14 w-auto object-contain lg:hidden"
+          />
+
+          <h1 className="text-title">{title}</h1>
+          {subtitle && (
+            <p className="mt-2 max-w-[38ch] text-body-sm text-ink-muted">{subtitle}</p>
+          )}
+
+          <div className="mt-8">{children}</div>
+
+          {footer && <div className="mt-6 text-body-sm text-ink-muted">{footer}</div>}
         </div>
-
-        {footer && <div className="mt-5 text-center text-body-sm text-ink-muted">{footer}</div>}
       </div>
     </main>
-  )
-}
-
-/**
- * Two soft primary ellipses behind the card.
- *
- * `aria-hidden` and `pointer-events-none`: it is lighting, not content. Sized
- * in viewport units so it scales with the screen rather than becoming a small
- * smudge on a monitor and a full wash on a phone.
- */
-function Backdrop() {
-  return (
-    <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-      <div
-        className="absolute -left-[15vw] -top-[20vh] size-[60vmax] rounded-full opacity-[0.55] blur-3xl"
-        style={{
-          background:
-            'radial-gradient(closest-side, hsl(var(--primary) / 0.16), transparent 70%)',
-        }}
-      />
-      <div
-        className="absolute -bottom-[25vh] -right-[10vw] size-[50vmax] rounded-full opacity-[0.45] blur-3xl"
-        style={{
-          background:
-            'radial-gradient(closest-side, hsl(var(--primary) / 0.12), transparent 70%)',
-        }}
-      />
-    </div>
   )
 }
 
