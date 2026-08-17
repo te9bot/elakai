@@ -22,6 +22,30 @@ export function RequireAccount({ children }: { children: React.ReactNode }) {
 
   if (status === 'loading') return <BrandLoader className="min-h-dvh" />
 
+  /*
+   * An administrator is not a contributor here.
+   *
+   * The two dashboards are separate roles rather than separate permissions on
+   * one account: /contribute is the contributor's workspace and /admin is the
+   * moderation desk, and an admin arriving at the former — by typing the URL,
+   * by a stale bookmark, or by pressing Contribute in the header — is sent to
+   * their own. The role comes from `profiles.role`, the same column
+   * `is_admin()` reads in Postgres; no email is compared anywhere.
+   *
+   * The cost, stated plainly because it is a real one: an admin account cannot
+   * submit a contribution, since the submission form lives under this guard.
+   * That is the requested behaviour. Reverting it is deleting this block.
+   *
+   * Not gated on the profile having loaded, deliberately. `AccountProvider`
+   * reports 'contributor' provisionally while the profile read is in flight, so
+   * holding here would reintroduce the wait that used to strand people on the
+   * login form. An admin who deep-links straight to /contribute may therefore
+   * see it for the moment before their role resolves — a flash, on a screen
+   * whose data they are allowed to read anyway, rather than a hang for
+   * everyone.
+   */
+  if (status === 'admin') return <Navigate to="/admin" replace />
+
   if (status === 'guest' || status === 'unconfigured') {
     const next = `${location.pathname}${location.search}`
     const params = new URLSearchParams(location.search)

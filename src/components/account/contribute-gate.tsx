@@ -79,7 +79,20 @@ export function ContributeGateProvider({ children }: { children: React.ReactNode
     (target?: ContributeTarget) => {
       const intent = toIntent(target)
 
-      if (status === 'contributor' || status === 'admin') {
+      /*
+       * An admin pressing Contribute goes to their own dashboard.
+       *
+       * Not to the submission form: /contribute is the contributor workspace
+       * and RequireAccount now turns admins away from it, so sending them there
+       * would only bounce them to /admin a frame later. Going straight there is
+       * the same destination without the flicker.
+       */
+      if (status === 'admin') {
+        navigate('/admin')
+        return
+      }
+
+      if (status === 'contributor') {
         const params = new URLSearchParams()
         if (intent.section) params.set('section', intent.section)
         if (intent.category) params.set('category', intent.category)
