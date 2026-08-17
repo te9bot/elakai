@@ -183,6 +183,159 @@ const ROUTES = [
 ]
 
 /* ------------------------------------------------------------------ */
+/* Cartographic detail                                                 */
+/*                                                                     */
+/* Everything below is the second tier of the map: minor settlements,  */
+/* local roads, upazila boundaries, tributaries and low ground. It is   */
+/* here to make the backdrop read as a surveyed district rather than as */
+/* six dots on a line.                                                  */
+/*                                                                     */
+/* WHAT IS REAL AND WHAT IS NOT — unchanged from the note at the top    */
+/*                                                                     */
+/* The names are real places in Kushtia district. Their *positions* are */
+/* not surveyed: they are laid out relative to the six projected towns  */
+/* so the network reads correctly, exactly as the trunk roads and the   */
+/* river already are. Nothing in the app computes a distance or a       */
+/* direction from any of it. The six main towns remain the only         */
+/* geometry taken from real coordinates, via AREA_MAP.                  */
+/*                                                                     */
+/* CONTRAST BUDGET                                                      */
+/*                                                                     */
+/* Every element here sits below the tier above it: minor roads are     */
+/* thinner and paler than trunk roads, minor labels are ~60% the size   */
+/* of the town labels and dimmer, boundaries are dashed hairlines. The  */
+/* hero has to stay the thing you read first, so detail is bought with  */
+/* density rather than with contrast.                                   */
+/* ------------------------------------------------------------------ */
+
+/** A point between two projected places, `f` of the way along, nudged off the
+ *  line by `off` so a settlement does not sit exactly on the trunk road. */
+function between(a: Point, b: Point, f: number, off = 0): Point {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const len = Math.hypot(dx, dy) || 1
+  return {
+    x: a.x + dx * f - (dy / len) * off,
+    y: a.y + dy * f + (dx / len) * off,
+  }
+}
+
+const daulatpur = at('daulatpur')
+const bheramara = at('bheramara')
+const mirpur = at('mirpur')
+const kumarkhali = at('kumarkhali')
+const khoksa = at('khoksa')
+
+/**
+ * Minor settlements, drawn as a small node and a small label.
+ *
+ * Ten is deliberate. Fewer and the district still looks empty between the
+ * towns; more and the labels start colliding at the widths the hero is
+ * actually read at, which is worse than having none.
+ */
+const MINOR: { name: { en: string; bn: string }; at: Point }[] = [
+  { name: { en: 'Allardarga', bn: 'আল্লারদর্গা' }, at: between(daulatpur, bheramara, 0.34, -26) },
+  { name: { en: 'Hatash Haripur', bn: 'হাটাশ হরিপুর' }, at: between(daulatpur, bheramara, 0.68, 30) },
+  { name: { en: 'Amla', bn: 'আমলা' }, at: between(bheramara, mirpur, 0.45, -30) },
+  { name: { en: 'Poradaha', bn: 'পোড়াদহ' }, at: between(bheramara, sadar, 0.5, 34) },
+  { name: { en: 'Jagati', bn: 'জগতি' }, at: between(mirpur, sadar, 0.62, -24) },
+  { name: { en: 'Janipur', bn: 'জানিপুর' }, at: between(sadar, kumarkhali, 0.26, 30) },
+  { name: { en: 'Bittipara', bn: 'বিত্তিপাড়া' }, at: between(sadar, kumarkhali, 0.58, -28) },
+  { name: { en: 'Shilaidaha', bn: 'শিলাইদহ' }, at: between(kumarkhali, khoksa, 0.3, 32) },
+  { name: { en: 'Piaripur', bn: 'পিয়ারীপুর' }, at: between(kumarkhali, khoksa, 0.66, -26) },
+  { name: { en: 'Chithulia', bn: 'চিথুলিয়া' }, at: between(mirpur, daulatpur, 0.5, 40) },
+]
+
+/**
+ * Local roads: every minor settlement joined onto the trunk network, plus a
+ * few cross-links so the network has loops in it. A road system that is a pure
+ * tree reads as a diagram; real ones close.
+ */
+const MINOR_ROADS = [
+  curve(daulatpur, MINOR[0].at, 0.08),
+  curve(MINOR[0].at, bheramara, 0.06),
+  curve(MINOR[1].at, bheramara, -0.1),
+  curve(bheramara, MINOR[2].at, 0.09),
+  curve(MINOR[2].at, mirpur, -0.07),
+  curve(MINOR[3].at, sadar, 0.05),
+  curve(mirpur, MINOR[4].at, 0.08),
+  curve(MINOR[4].at, sadar, -0.06),
+  curve(sadar, MINOR[5].at, 0.07),
+  curve(MINOR[5].at, MINOR[6].at, -0.05),
+  curve(MINOR[6].at, kumarkhali, 0.06),
+  curve(kumarkhali, MINOR[7].at, -0.08),
+  curve(MINOR[7].at, MINOR[8].at, 0.05),
+  curve(MINOR[8].at, khoksa, -0.07),
+  curve(MINOR[9].at, mirpur, 0.1),
+  curve(daulatpur, MINOR[9].at, -0.09),
+]
+
+/** Unnamed lanes running off the network into the fields. Short, and the
+ *  faintest thing on the map — they read as texture, not as routes. */
+const LANES = MINOR.flatMap((m, i) => {
+  const a = m.at
+  const spread = [(i * 37) % 60, (i * 53) % 60]
+  return [
+    `M ${a.x} ${a.y} L ${a.x + 34 + spread[0] * 0.4} ${a.y + 22 - spread[1] * 0.5}`,
+    `M ${a.x} ${a.y} L ${a.x - 28 - spread[1] * 0.35} ${a.y + 30 + spread[0] * 0.3}`,
+  ]
+})
+
+/** Where a local road meets the trunk network. Small, and only at the towns
+ *  the roads actually converge on. */
+const JUNCTIONS = [
+  between(daulatpur, bheramara, 0.34, -26),
+  between(bheramara, mirpur, 0.45, -30),
+  between(mirpur, sadar, 0.62, -24),
+  between(sadar, kumarkhali, 0.26, 30),
+  between(kumarkhali, khoksa, 0.3, 32),
+]
+
+/**
+ * Upazila boundaries, as dashed hairlines running between the towns rather
+ * than around them.
+ *
+ * Drawn this way on purpose. Closed polygons would be a claim about where the
+ * borders are, and these are not surveyed; a line falling roughly between two
+ * upazila seats says "the district is divided here" without asserting a shape.
+ */
+const BOUNDARIES = [
+  `M ${between(daulatpur, bheramara, 0.5, -170).x} ${between(daulatpur, bheramara, 0.5, -170).y}
+   Q ${between(daulatpur, bheramara, 0.5, 0).x} ${between(daulatpur, bheramara, 0.5, 20).y}
+     ${between(daulatpur, bheramara, 0.5, 170).x} ${between(daulatpur, bheramara, 0.5, 170).y}`,
+  `M ${between(bheramara, mirpur, 0.55, -180).x} ${between(bheramara, mirpur, 0.55, -180).y}
+   Q ${between(bheramara, mirpur, 0.55, 0).x} ${between(bheramara, mirpur, 0.55, 10).y}
+     ${between(bheramara, mirpur, 0.55, 180).x} ${between(bheramara, mirpur, 0.55, 180).y}`,
+  `M ${between(mirpur, sadar, 0.5, -200).x} ${between(mirpur, sadar, 0.5, -200).y}
+   Q ${between(mirpur, sadar, 0.5, 0).x} ${between(mirpur, sadar, 0.5, 15).y}
+     ${between(mirpur, sadar, 0.5, 200).x} ${between(mirpur, sadar, 0.5, 200).y}`,
+  `M ${between(sadar, kumarkhali, 0.5, -190).x} ${between(sadar, kumarkhali, 0.5, -190).y}
+   Q ${between(sadar, kumarkhali, 0.5, 0).x} ${between(sadar, kumarkhali, 0.5, 12).y}
+     ${between(sadar, kumarkhali, 0.5, 190).x} ${between(sadar, kumarkhali, 0.5, 190).y}`,
+  `M ${between(kumarkhali, khoksa, 0.55, -170).x} ${between(kumarkhali, khoksa, 0.55, -170).y}
+   Q ${between(kumarkhali, khoksa, 0.55, 0).x} ${between(kumarkhali, khoksa, 0.55, 14).y}
+     ${between(kumarkhali, khoksa, 0.55, 170).x} ${between(kumarkhali, khoksa, 0.55, 170).y}`,
+]
+
+/** Tributaries feeding the two main channels. Thinner than the rivers they
+ *  join, and they stop short rather than running off the frame. */
+const TRIBUTARIES = [
+  'M 210 96 C 250 150, 236 196, 286 236',
+  'M 520 214 C 556 262, 604 274, 640 322',
+  'M 840 268 C 884 320, 928 332, 962 386',
+  'M 1096 250 C 1128 296, 1150 330, 1168 372',
+  'M 742 430 C 786 468, 828 486, 872 526',
+]
+
+/** Low ground and char land along the water. Very soft, and the lowest
+ *  contrast thing on the map — it should register as tone, not as shape. */
+const TERRAIN = [
+  'M -40 120 C 140 70, 320 120, 430 190 C 300 236, 130 214, -40 214 Z',
+  'M 660 372 C 790 400, 900 466, 1010 556 C 880 540, 740 486, 640 430 Z',
+  'M 250 470 C 400 440, 520 486, 610 556 C 460 596, 320 560, 240 520 Z',
+]
+
+/* ------------------------------------------------------------------ */
 /* The journey                                                         */
 /* ------------------------------------------------------------------ */
 
@@ -757,6 +910,30 @@ function KushtiaMapImpl({
             fill="url(#km-grid)"
             opacity="0.7"
           />
+
+          {/* Low ground, on the deepest layer so it sits under everything and
+              barely moves — ground should not parallax like a road. */}
+          {TERRAIN.map((d, i) => (
+            <path
+              key={`terrain-${i}`}
+              d={d}
+              className="fill-[#e6edf6] dark:fill-[#101c2e]"
+              opacity="0.5"
+            />
+          ))}
+
+          {/* Upazila divisions. Dashed hairlines, the faintest strokes here. */}
+          {BOUNDARIES.map((d, i) => (
+            <path
+              key={`bound-${i}`}
+              d={d}
+              fill="none"
+              strokeWidth="1"
+              strokeDasharray="2 9"
+              className="stroke-[#a9b8cc] dark:stroke-[#2b3a51]"
+              opacity="0.55"
+            />
+          ))}
         </g>
 
         {/* 3 — urban blocks: density around the three larger towns */}
@@ -776,6 +953,26 @@ function KushtiaMapImpl({
                   height={h}
                   rx="2"
                   opacity={0.55}
+                />
+              )
+            }),
+          )}
+
+          {/* Smaller blocks around the minor settlements. Same deterministic
+              scatter, two-thirds the size and half the opacity, so density
+              falls off away from the towns the way it actually does. */}
+          {MINOR.flatMap((m, i) =>
+            Array.from({ length: 3 }, (_, k) => {
+              const seed = i * 11 + k * 19
+              return (
+                <rect
+                  key={`minor-block-${i}-${k}`}
+                  x={m.at.x + (((seed * 13) % 74) - 37)}
+                  y={m.at.y + (((seed * 29) % 56) - 28)}
+                  width={12 + ((seed * 7) % 16)}
+                  height={9 + ((seed * 5) % 12)}
+                  rx="1.5"
+                  opacity={0.3}
                 />
               )
             }),
@@ -802,10 +999,45 @@ function KushtiaMapImpl({
             className="stroke-[#bcd7ee] dark:stroke-[#12405c]"
             opacity="0.6"
           />
+
+          {/* Tributaries. Same hue as the channels they feed, a fifth of the
+              width, so the water reads as a system rather than two stripes. */}
+          {TRIBUTARIES.map((d, i) => (
+            <path
+              key={`trib-${i}`}
+              d={d}
+              strokeWidth="4"
+              className="stroke-[#bcd7ee] dark:stroke-[#12405c]"
+              opacity="0.5"
+            />
+          ))}
         </g>
 
-        {/* 5 — trunk roads */}
+        {/* 5 — roads, in hierarchy order: lanes, then local roads, then trunk.
+               Painted lowest-first so the trunk network stays on top of its own
+               feeders, which is what makes the hierarchy legible rather than
+               just thinner. */}
         <g ref={setLayer[3]} fill="none" strokeLinecap="round">
+          {LANES.map((d, i) => (
+            <path
+              key={`lane-${i}`}
+              d={d}
+              strokeWidth="1"
+              className="stroke-[#cfd8e4] dark:stroke-[#22334c]"
+              opacity="0.45"
+            />
+          ))}
+
+          {MINOR_ROADS.map((d, i) => (
+            <path
+              key={`minor-road-${i}`}
+              d={d}
+              strokeWidth="2.5"
+              className="stroke-[#cfd8e4] dark:stroke-[#22334c]"
+              opacity="0.8"
+            />
+          ))}
+
           {ROADS.map((d, i) => (
             <path
               key={i}
@@ -868,6 +1100,47 @@ function KushtiaMapImpl({
             Held at 0.8 so place names read as part of the backdrop rather than
             competing with the hero copy sitting over them. */}
         <g ref={setLayer[6]} opacity="0.8">
+          {/* Junctions, drawn before the settlements so a node sits over its
+              own road joint rather than under it. */}
+          {JUNCTIONS.map((j, i) => (
+            <circle
+              key={`junction-${i}`}
+              cx={j.x}
+              cy={j.y}
+              r="2.5"
+              className="fill-[#9db3cc] dark:fill-[#3d5372]"
+              opacity="0.7"
+            />
+          ))}
+
+          {/* Minor settlements. Roughly half the node and 60% the label of a
+              town, and dimmer — the six upazila seats have to stay readable as
+              the primary tier at a glance. */}
+          {MINOR.map((m) => (
+            <g key={m.name.en}>
+              <circle
+                cx={m.at.x}
+                cy={m.at.y}
+                r="3.5"
+                className="fill-[#9db3cc] dark:fill-[#3d5372]"
+              />
+              <circle
+                cx={m.at.x}
+                cy={m.at.y}
+                r="1.5"
+                className="fill-[#ffffff] dark:fill-[#0b1220]"
+              />
+              <text
+                x={m.at.x}
+                y={m.at.y - 9}
+                textAnchor="middle"
+                className="text-[10px] font-semibold tracking-wide fill-[#8ba0b8] dark:fill-[#4a627f]"
+              >
+                {L(m.name)}
+              </text>
+            </g>
+          ))}
+
           {PLACES.map((p) => {
             const isSadar = p.id === 'kushtia-sadar'
             return (
