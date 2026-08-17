@@ -365,7 +365,10 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       async sendPasswordReset(email) {
         if (!supabase) throw new Error('Supabase is not configured.')
         const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-          redirectTo: `${window.location.origin}/elakai/account/login`,
+          // From the build's base, not a literal — same reason as
+          // `confirmationRedirect` in lib/contribute-intent.ts. BASE_URL is
+          // '/elakai/' here and keeps its trailing slash.
+          redirectTo: `${window.location.origin}${import.meta.env.BASE_URL}account/login`,
         })
         if (error) throw new Error(error.message)
       },

@@ -392,7 +392,7 @@ function pointOnJourney(t: number): Point {
  * than the thing it is lighting — a 520-unit pool over a ~20-unit marker reads
  * as the area brightening.
  */
-const FOCUS_RADIUS = 260
+const FOCUS_RADIUS = 300
 
 /** How quickly the light catches the scroll. Slower than the parallax so it
  *  drifts rather than tracks, which is what makes it feel like a camera. */
@@ -843,11 +843,11 @@ function KushtiaMapImpl({
           <radialGradient id="km-focus" cx="50%" cy="50%">
             <stop
               offset="0%"
-              className="[stop-color:#2563EB] [stop-opacity:0.14] dark:[stop-color:#38BDF8] dark:[stop-opacity:0.19]"
+              className="[stop-color:#2563EB] [stop-opacity:0.26] dark:[stop-color:#38BDF8] dark:[stop-opacity:0.34]"
             />
             <stop
               offset="40%"
-              className="[stop-color:#2563EB] [stop-opacity:0.05] dark:[stop-color:#38BDF8] dark:[stop-opacity:0.07]"
+              className="[stop-color:#2563EB] [stop-opacity:0.11] dark:[stop-color:#38BDF8] dark:[stop-opacity:0.15]"
             />
             <stop
               offset="100%"

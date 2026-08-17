@@ -177,7 +177,20 @@ export function intentFromSearch(search: string): ContributeIntent | null {
  * the intent is lost. See supabase/CONTRIBUTORS.md.
  */
 export function confirmationRedirect(intent: ContributeIntent | null): string {
-  const base = `${window.location.origin}/elakai/account/callback`
+  /*
+   * The base path comes from the build, not from a literal.
+   *
+   * This read `${origin}/elakai/account/callback` with the segment written out.
+   * It was correct, and it was the one place in the app that knew the deploy
+   * path by heart — `vite.config.ts` sets `base`, `App.tsx` sets the router
+   * `basename`, and `lib/pwa.ts` registers the worker against
+   * `import.meta.env.BASE_URL`, so renaming the repository would have moved
+   * three of the four and left this one building a URL into a Pages 404.
+   *
+   * `BASE_URL` is '/elakai/' here and always carries its trailing slash, hence
+   * no separator between it and the path below.
+   */
+  const base = `${window.location.origin}${import.meta.env.BASE_URL}account/callback`
   if (!intent) return base
   const params = new URLSearchParams({ next: intent.path })
   if (intent.section) params.set('section', intent.section)
