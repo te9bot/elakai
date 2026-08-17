@@ -766,7 +766,7 @@ function ReviewPanel({
 
       <dl className="mt-4 divide-y divide-line">
         {rows.map((r) => (
-          <div key={r.label} className="grid gap-1 py-2.5 sm:grid-cols-[10rem_1fr] sm:gap-4">
+          <div key={r.label} className="grid gap-1 py-2.5 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4">
             <dt className="text-meta font-bold text-ink-subtle">{r.label}</dt>
             <dd className="min-w-0 break-words text-body-sm text-ink">{r.value}</dd>
           </div>

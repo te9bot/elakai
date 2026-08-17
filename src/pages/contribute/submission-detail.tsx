@@ -247,7 +247,7 @@ function Outcome({ submission: s }: { submission: Submission }) {
 function Row({ label, value }: { label: string; value: string }) {
   if (!value?.trim()) return null
   return (
-    <div className="grid gap-1 py-2.5 sm:grid-cols-[10rem_1fr] sm:gap-4">
+    <div className="grid gap-1 py-2.5 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4">
       <dt className="text-meta font-bold text-ink-subtle">{label}</dt>
       <dd className="min-w-0 break-words text-body-sm text-ink">{value}</dd>
     </div>

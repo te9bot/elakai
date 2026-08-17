@@ -353,7 +353,7 @@ function FacilityProfile({ facility }: { facility: HealthFacility }) {
           </div>
         </Card>
 
-        <div className="mt-6 flex flex-col gap-6 lg:grid lg:grid-cols-[1fr_360px] lg:gap-8">
+        <div className="mt-6 flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-8">
           {/* ---------------- পরিচিতি ---------------- */}
           <ProfileSection title={t('biz.about')}>
             <p className="text-body leading-relaxed text-pretty text-ink-muted">
@@ -598,7 +598,7 @@ function DoctorProfile({ doctor }: { doctor: Doctor }) {
           )}
         </Card>
 
-        <div className="mt-6 flex flex-col gap-6 lg:grid lg:grid-cols-[1fr_360px] lg:gap-8">
+        <div className="mt-6 flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-8">
           {/* ---------------- চেম্বার ---------------- */}
           <ProfileSection title={t('health.chambers')}>
             {doctor.chambers && doctor.chambers.length > 0 ? (

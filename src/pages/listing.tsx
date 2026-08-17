@@ -152,7 +152,7 @@ function ListingDetail({ listing }: { listing: Listing }) {
               on mobile, so the photograph is never what a phone opens onto —
               the name and the call button are. `items-start` keeps the two
               columns top-aligned instead of the shorter one floating centred. */}
-          <div className="grid gap-6 lg:grid-cols-[1.05fr_1fr] lg:items-start">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:items-start">
             <div className="overflow-hidden rounded-card border border-line bg-surface-2">
               {/* Fixed ratio, so the card reserves its space before the image
                   decodes and the text beside it does not jump on load. */}
@@ -426,7 +426,7 @@ function LoadingState() {
       <div className="border-b border-line bg-surface">
         <div className="container py-6 sm:py-8">
           <Skeleton className="mb-5 h-5 w-28" />
-          <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
             <Skeleton className="aspect-[16/10] w-full rounded-card" />
             <div className="space-y-3">
               <Skeleton className="h-3 w-24" />

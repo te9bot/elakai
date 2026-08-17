@@ -75,9 +75,29 @@ export function TopNav() {
           <Logo className="h-11 md:h-[52px]" />
         </Link>
 
+        {/*
+         * `lg:flex`, not `md:flex`.
+         *
+         * These links used to appear at 768px, and between there and 1024px the
+         * row could not hold them. Measured at 820px: logo, five links, the
+         * search icon, the language and theme buttons and the Contribute call
+         * to action came to 908px inside 762px of content, so the header ran
+         * past the viewport and took the whole page's horizontal scrollbar with
+         * it — on every route, since this is the shell.
+         *
+         * Raising the breakpoint also settles a disagreement rather than just
+         * moving a number. `BottomNav` is `lg:hidden` and the app shell's
+         * bottom padding clears at `lg`, so below 1024px navigation is supposed
+         * to live in the bottom bar. At `md` these links were a second copy of
+         * it, competing for a row that had no space for them. Now all three
+         * agree: bottom bar below `lg`, header at `lg` and up.
+         *
+         * The search field gives way at `xl` for the same class of reason — see
+         * the note further down.
+         */}
         <nav
           aria-label={t('nav.primary')}
-          className="ml-4 hidden items-center gap-1 md:flex"
+          className="ml-4 hidden items-center gap-1 lg:flex"
         >
           {LINKS.map((l) => (
             <NavLink

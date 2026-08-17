@@ -63,7 +63,7 @@ export function AuthShell({
   wide?: boolean
 }) {
   return (
-    <main className="grid min-h-dvh bg-canvas lg:grid-cols-[1.05fr_1fr]">
+    <main className="grid min-h-dvh bg-canvas lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
       <AuthBrandPanel />
 
       <div className="flex min-h-dvh flex-col justify-center px-5 py-10 sm:px-8 lg:min-h-0 lg:px-12">

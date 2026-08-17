@@ -149,8 +149,25 @@ export default function BusinessPage() {
             About is hoisted out of the left column so contact details and the map
             follow it immediately on mobile instead of trailing the reviews. On
             desktop auto-placement returns About to column 1 and the sidebar spans
-            both of its rows. */}
-        <div className="mt-6 flex flex-col gap-6 lg:grid lg:grid-cols-[1fr_360px] lg:gap-8">
+            both of its rows.
+
+            `minmax(0,1fr)`, NOT `1fr` — this was the bug that pushed the contact
+            panel off the right of the screen.
+
+            A bare `1fr` is shorthand for `minmax(auto, 1fr)`, and that `auto`
+            floor is a *min-content* floor: the track refuses to shrink below the
+            widest unbreakable thing inside it. Something in this column — a long
+            address, a map, an unbroken phone string — held the floor at 1404px
+            inside a 1216px container, so the 360px sidebar started past the
+            container edge and the page grew a 245px horizontal scroll.
+            Measured: tracks computed to `1404px 360px` where 824px + 360px was
+            intended.
+
+            `minmax(0, …)` lets the track shrink and hands the overflow back to
+            the children, which already carry `min-w-0` / `truncate` for exactly
+            this. The hero has always done it this way; the detail pages had not,
+            and every two-column grid in the app now matches. */}
+        <div className="mt-6 flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-8">
           {/* ---------------- About ---------------- */}
           <section>
             <h2 className="mb-2 text-heading">{t('biz.about')}</h2>

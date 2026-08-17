@@ -243,7 +243,7 @@ export default function SearchPage() {
         </div>
       </div>
 
-      <div className="lg:grid lg:grid-cols-[260px_1fr] lg:gap-8">
+      <div className="lg:grid lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-8">
         {/* Desktop sidebar filters */}
         <aside className="hidden lg:block">
           <div className="sticky top-28 rounded-card border border-line bg-surface p-5 shadow-card">

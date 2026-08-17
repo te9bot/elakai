@@ -198,7 +198,7 @@ export default function AdminSubmissionReviewPage() {
         </Card>
       )}
 
-      <div className="mt-6 grid gap-5 lg:grid-cols-[1fr_20rem] lg:items-start">
+      <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
         <div className="min-w-0 space-y-5">
           {/* ---- The image, large enough to actually judge (§31) ---- */}
           <Card className="overflow-hidden p-0">
@@ -702,7 +702,7 @@ function RejectDialog({
 function Row({ label, value, link }: { label: string; value: string; link?: boolean }) {
   if (!value?.trim()) return null
   return (
-    <div className="grid gap-1 py-2.5 sm:grid-cols-[9rem_1fr] sm:gap-4">
+    <div className="grid gap-1 py-2.5 sm:grid-cols-[9rem_minmax(0,1fr)] sm:gap-4">
       <dt className="text-meta font-bold text-ink-subtle">{label}</dt>
       <dd className="min-w-0 break-words text-body-sm text-ink">
         {link ? (
