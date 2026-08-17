@@ -18,10 +18,26 @@ import { useAccount } from '@/lib/auth'
  * credentials that do not exist.
  */
 export function RequireAdmin({ children }: { children: React.ReactNode }) {
-  const { status } = useAccount()
+  const { status, profile } = useAccount()
   const location = useLocation()
 
   if (status === 'loading') return <BrandLoader className="min-h-dvh" />
+
+  /*
+   * 'contributor' with no profile yet is not an answer, it is a placeholder.
+   *
+   * `AccountProvider` settles on 'contributor' as soon as it holds a session,
+   * before the profile read that decides the role has come back — that is what
+   * stops a slow query stranding someone on the login page. The cost is that
+   * this guard can see 'contributor' for an account that is about to resolve as
+   * an admin, and redirecting on it would bounce a real admin off /admin a
+   * moment before their role arrived.
+   *
+   * `profile` is null until that read completes and non-null forever after, so
+   * it is exactly the "do we actually know yet" signal. Hold the loader until
+   * it does.
+   */
+  if (status === 'contributor' && !profile) return <BrandLoader className="min-h-dvh" />
 
   if (status === 'contributor') return <Navigate to="/contribute" replace />
 

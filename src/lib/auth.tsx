@@ -212,6 +212,17 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   // and reinstate the profile of the account that just left.
   const generation = useRef(0)
 
+  /**
+   * The signed-in user's id, readable from inside the auth listener.
+   *
+   * The listener subscribes once and never re-subscribes, so it cannot see
+   * `user` — it would only ever see the first render's `null`. Written here
+   * during render rather than in an effect so it is already correct by the time
+   * any auth event can fire.
+   */
+  const userIdRef = useRef<string | undefined>(undefined)
+  userIdRef.current = user?.id
+
   const resolve = useCallback(async (session: Session | null) => {
     const mine = ++generation.current
 
@@ -223,6 +234,31 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     }
 
     setUser(session.user)
+
+    /*
+     * A SESSION IS ENOUGH TO STOP BEING A GUEST.
+     *
+     * This used to wait for `contributorSchemaReady()` and then `loadProfile()`
+     * — two network round-trips — before leaving 'loading'. That is the bug
+     * behind "I signed in and it left me on the login page": the login screen
+     * only navigates away on 'contributor' or 'admin', and renders the form for
+     * 'loading'. So a slow or hanging profile query did not surface as an
+     * error or a spinner; it surfaced as a form that had apparently ignored a
+     * successful sign-in. Neither call has a timeout, so "slow" had no ceiling,
+     * and RequireAccount would sit on its loader for the same reason.
+     *
+     * Authentication and authorisation are separate questions and only the
+     * first one is answered by Supabase here. We know the moment we hold a
+     * session that this is not a guest; what we do not yet know is the role.
+     * So the status settles now and the role refines below.
+     *
+     * 'contributor' rather than 'admin' is deliberate and is the safe
+     * direction: a slow profile read can only ever under-grant. The admin
+     * panel's own guard requires status === 'admin', so nobody reaches it on
+     * this provisional value, and every admin RLS policy re-checks in Postgres
+     * regardless.
+     */
+    if (generation.current === mine) setStatus('contributor')
 
     const ready = await contributorSchemaReady()
     if (generation.current !== mine) return
@@ -255,10 +291,19 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 
     const { data: sub } = db.auth.onAuthStateChange((event, session) => {
       if (cancelled) return
-      // TOKEN_REFRESHED fires on a timer and carries the same user. Re-reading
-      // the profile on it would issue a query every hour for no new
-      // information; the session itself is already updated by the client.
-      if (event === 'TOKEN_REFRESHED' && session?.user?.id === user?.id) return
+      /*
+       * TOKEN_REFRESHED fires on a timer and carries the same user. Re-reading
+       * the profile on it would issue a query every hour for no new
+       * information; the session itself is already updated by the client.
+       *
+       * Compared against a ref, not against `user`. This effect subscribes once
+       * and deliberately never re-subscribes, so the `user` it closed over is
+       * the one from the first render — `null`, forever. The comparison was
+       * therefore always `'<some id>' === undefined`, always false, and the
+       * guard it looks like it provides never once fired. A ref is read at call
+       * time, so it actually holds the current user.
+       */
+      if (event === 'TOKEN_REFRESHED' && session?.user?.id === userIdRef.current) return
       void resolve(session)
     })
 
@@ -266,9 +311,6 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       cancelled = true
       sub.subscription.unsubscribe()
     }
-    // `user?.id` is read inside the TOKEN_REFRESHED guard only; re-subscribing
-    // on every user change would tear down and rebuild the listener during
-    // sign-in, so it is deliberately not a dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolve])
 
