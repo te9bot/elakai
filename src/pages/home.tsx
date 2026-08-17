@@ -301,17 +301,14 @@ function HowItWorks() {
             this far: it is a 320px wash travelling 100px, and the panel is the
             only thing that keeps it off the sections either side. */}
         <ParallaxScene className="relative overflow-hidden rounded-card border border-line bg-surface p-6 shadow-card sm:p-8">
-          {/* Runs the opposite way to the steps, and further. The panel has no
-              depth of its own to give, so the only place it can come from is
-              the gap between the wash and the content it sits behind. */}
-          <ParallaxLayer
-            className="pointer-events-none absolute -right-24 -top-32"
-            y={[-52, 52]}
-            x={[16, -16]}
-          >
-            <div aria-hidden="true" className="glow-primary size-80 animate-float" />
-          </ParallaxLayer>
-
+          {/* A 320px primary glow used to float off this panel's top-right
+              corner on its own parallax. Removed with the hero's two: same
+              artefact, same reason. It was a radial gradient parked in a corner
+              with nothing in the geography behind it, and the brief is explicit
+              that the light on this site should belong to the map rather than
+              to a CSS offset. The panel keeps its own surface and wash for
+              depth; see components/home/kushtia-map.tsx for where the
+              atmosphere lives now. */}
           <h2 className="relative text-title text-balance">{t('home.howItWorks')}</h2>
 
           <div className="relative mt-6">

@@ -163,7 +163,8 @@ export function HomeHero({ isPrecise }: { isPrecise: boolean }) {
   // its layers against the window rather than against this section — so the
   // grid transforms that used to live here are gone. What remains are the
   // hero's foreground rates, which still pull ahead of that backdrop.
-  const glowY = useTransform(scrollYProgress, [0, 1], [0, 130 * depth])
+  // `glowY` went with the two floating glow blobs it used to drive; the map's
+  // focus light is positioned by geography now, not by this section's progress.
   const stripY = useTransform(scrollYProgress, [0, 1], [0, -18 * depth])
   const copyY = useTransform(scrollYProgress, [0, 1], [0, -46 * depth])
   const panelY = useTransform(scrollYProgress, [0, 1], [0, -92 * depth])
@@ -215,10 +216,21 @@ export function HomeHero({ isPrecise }: { isPrecise: boolean }) {
         aria-hidden="true"
         className="absolute inset-x-0 top-0 -z-10 h-72 bg-gradient-to-b from-primary/[0.07] to-transparent"
       />
-      <m.div aria-hidden="true" className="absolute inset-0 -z-10" style={par(glowY)}>
-        <div className="glow-primary absolute -left-40 -top-48 size-[620px] animate-float" />
-        <div className="glow-success absolute -right-32 top-16 size-[520px] animate-float-alt" />
-      </m.div>
+      {/* Two floating glow blobs used to sit here: a 620px primary one pinned
+          off the top-left and a 520px *green* one pinned off the top-right,
+          both drifting on their own float animations.
+
+          Removed rather than retuned. They were decoration pinned to the
+          viewport, not to the map — the green one in particular parked itself
+          over the Kumarkhali/Khoksa side of the district in a colour the map
+          does not use anywhere, which is what made it read as an artificial
+          light stuck in the corner. The atmosphere they were reaching for is
+          now the map's own travelling focus light, which is positioned by
+          geography instead of by CSS offsets. See the note above layer 7 in
+          components/home/kushtia-map.tsx.
+
+          The soft primary wash at the top of the hero (just above) stays: it is
+          a flat gradient tying the header into the page, not a floating object. */}
 
       <div className="container relative py-7 sm:py-12 lg:py-16">
         {/* Asymmetric on desktop: copy and search hold the left column, the

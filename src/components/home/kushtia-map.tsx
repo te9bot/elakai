@@ -131,14 +131,37 @@ const PLACES = AREA_ORDER.map((id) => {
 
 const at = (id: AreaId) => PLACES.find((p) => p.id === id)!
 
-/** A gentle curve between two projected points, so roads are not rulers. */
-function curve(a: { x: number; y: number }, b: { x: number; y: number }, bow = 0.12): string {
+type Point = { x: number; y: number }
+
+/**
+ * The control point of the quadratic that bends a road off the straight line.
+ *
+ * Split out from `curve()` so the geometry has one definition. The focus light
+ * below walks these same curves, and if it computed its own the light would
+ * drift off the roads the moment either formula was touched.
+ */
+function control(a: Point, b: Point, bow: number): Point {
   const mx = (a.x + b.x) / 2
   const my = (a.y + b.y) / 2
   // Offset the control point perpendicular to the run.
   const dx = b.x - a.x
   const dy = b.y - a.y
-  return `M ${a.x} ${a.y} Q ${mx - dy * bow} ${my + dx * bow} ${b.x} ${b.y}`
+  return { x: mx - dy * bow, y: my + dx * bow }
+}
+
+/** A gentle curve between two projected points, so roads are not rulers. */
+function curve(a: Point, b: Point, bow = 0.12): string {
+  const c = control(a, b, bow)
+  return `M ${a.x} ${a.y} Q ${c.x} ${c.y} ${b.x} ${b.y}`
+}
+
+/** A point at `t` (0..1) along a quadratic Bézier. */
+function quadAt(a: Point, c: Point, b: Point, t: number): Point {
+  const u = 1 - t
+  return {
+    x: u * u * a.x + 2 * u * t * c.x + t * t * b.x,
+    y: u * u * a.y + 2 * u * t * c.y + t * t * b.y,
+  }
 }
 
 const sadar = at('kushtia-sadar')
@@ -158,6 +181,69 @@ const ROUTES = [
   curve(at('daulatpur'), at('mirpur'), -0.16),
   curve(sadar, at('khoksa'), 0.2),
 ]
+
+/* ------------------------------------------------------------------ */
+/* The journey                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The district north-west to south-east, which is also the order the trunk
+ * roads already connect it in — the first five entries of `ROADS` are exactly
+ * these hops.
+ *
+ * This is what the focus light travels. It is a real route through real
+ * coordinates, not a decorative path invented to look like one.
+ */
+const JOURNEY: AreaId[] = [
+  'daulatpur',
+  'bheramara',
+  'mirpur',
+  'kushtia-sadar',
+  'kumarkhali',
+  'khoksa',
+]
+
+/**
+ * The journey as Bézier segments, built from the same `control()` the roads
+ * are drawn with and at the same default bow — so the light rides the road
+ * rather than cutting the corner beside it.
+ */
+const JOURNEY_SEGMENTS = JOURNEY.slice(0, -1).map((id, i) => {
+  const a = at(id)
+  const b = at(JOURNEY[i + 1])
+  return { a, c: control(a, b, 0.12), b }
+})
+
+/**
+ * Where the light is at `t` (0..1) across the whole journey.
+ *
+ * One continuous walk: `t` scales across the five segments, the integer part
+ * picks the segment and the fraction is the position along it. There is no
+ * per-location fade to cross-fade between and therefore nothing that can snap
+ * — at a segment boundary the light is simply at a location, arriving and
+ * leaving on the same curve.
+ */
+function pointOnJourney(t: number): Point {
+  const n = JOURNEY_SEGMENTS.length
+  const scaled = Math.min(Math.max(t, 0), 1) * n
+  const i = Math.min(Math.floor(scaled), n - 1)
+  const seg = JOURNEY_SEGMENTS[i]
+  return quadAt(seg.a, seg.c, seg.b, scaled - i)
+}
+
+/**
+ * How wide the pool of light is, in view units against a 1200x700 canvas.
+ *
+ * Large on purpose. The brief asks for illumination rather than an object, and
+ * the way a soft light stops reading as a glowing ball is by being much bigger
+ * than the thing it is lighting — a 520-unit pool over a ~20-unit marker reads
+ * as the area brightening.
+ */
+const FOCUS_RADIUS = 260
+
+/** How quickly the light catches the scroll. Slower than the parallax so it
+ *  drifts rather than tracks, which is what makes it feel like a camera. */
+const FOCUS_CATCH_UP = 0.045
 
 /* ------------------------------------------------------------------ */
 /* Component                                                           */
@@ -262,6 +348,7 @@ function KushtiaMapImpl({
   const reduced = useReducedMotion()
   const ref = useRef<HTMLDivElement>(null)
   const layerRefs = useRef<(SVGGElement | null)[]>([])
+  const focusRef = useRef<SVGGElement | null>(null)
 
   const panel = variant === 'panel'
 
@@ -295,6 +382,21 @@ function KushtiaMapImpl({
         const x = Math.sin((t / period) * Math.PI * 2) * amp
         const y = Math.sin((t / (period * 1.37)) * Math.PI * 2 + i) * amp * 0.55
         node.style.transform = `translate3d(${x}px, ${y}px, 0)`
+      }
+
+      /*
+       * The focus light, on a clock here because there is no scroll on the
+       * auth page to read.
+       *
+       * A triangle wave rather than a sawtooth: it walks Daulatpur to Khoksa
+       * and then back again, so the light is always somewhere on the route and
+       * never jumps home. A sawtooth would teleport from Khoksa to Daulatpur
+       * once a minute, which is exactly the snap the brief rules out.
+       */
+      if (focusRef.current) {
+        const cycle = (t / 96) % 2
+        const p = pointOnJourney(cycle > 1 ? 2 - cycle : cycle)
+        focusRef.current.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`
       }
     }
 
@@ -348,6 +450,17 @@ function KushtiaMapImpl({
     const target = { x: 0, y: 0 }
 
     /*
+     * The focus light's position along the journey, 0 at Daulatpur and 1 at
+     * Khoksa, held separately from the parallax so it can ease at its own rate.
+     *
+     * Read from the scroll value this component is *already* subscribed to.
+     * Nothing here adds a listener, touches the wheel, or asks the scroll
+     * engine for anything — lib/smooth-scroll.ts and lib/scroll.ts are not
+     * involved beyond the `onScrollFrame` callback that was here before.
+     */
+    const focus = { current: 0, target: 0 }
+
+    /*
      * The element's box, measured once and on resize rather than per event.
      *
      * Reading `getBoundingClientRect()` inside a `mousemove` handler is a
@@ -371,11 +484,20 @@ function KushtiaMapImpl({
 
       const dx = target.x - current.x
       const dy = target.y - current.y
+      const df = focus.target - focus.current
 
       // Nothing left to move. Stop the loop entirely rather than burning a
       // frame forever on a page that is sitting still — the next input calls
       // `wake()` and it picks up where it left off.
-      if (Math.abs(dx) < SETTLED / 100 && Math.abs(dy) < SETTLED / 100) {
+      //
+      // The light is part of that test now. Without it the loop could settle
+      // the parallax and stop while the light was still mid-journey, freezing
+      // it part-way between two towns until the next scroll event.
+      if (
+        Math.abs(dx) < SETTLED / 100 &&
+        Math.abs(dy) < SETTLED / 100 &&
+        Math.abs(df) < 0.0004
+      ) {
         cancelAnimationFrame(frame)
         running = false
         for (const node of nodes) node?.style.removeProperty('will-change')
@@ -384,6 +506,14 @@ function KushtiaMapImpl({
 
       current.x += dx * CATCH_UP
       current.y += dy * CATCH_UP
+
+      // Eases slower than the parallax, so the light lags the page a little and
+      // reads as something travelling rather than something pinned to scroll.
+      focus.current += df * FOCUS_CATCH_UP
+      if (focusRef.current) {
+        const p = pointOnJourney(focus.current)
+        focusRef.current.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`
+      }
 
       /*
        * Seven writes, no reads.
@@ -427,6 +557,45 @@ function KushtiaMapImpl({
      */
     let scrollShare = (Math.min(currentScrollY(), SCROLL_SPAN) / SCROLL_SPAN) * 7
 
+    /**
+     * How far through the page we are, 0..1 — and therefore how far along the
+     * journey the light should be.
+     *
+     * Deliberately the *whole document*, not `SCROLL_SPAN`. The parallax clamps
+     * at one screen because its job is to separate the layers a little and then
+     * stop; the light's job is the opposite, to make reading the page feel like
+     * travelling the district end to end, so it has to stretch across
+     * everything there is to scroll.
+     *
+     * `scrollHeight` is read here rather than cached because pages grow — cards
+     * load, sections reveal — and a length measured at mount would leave the
+     * light finishing early on every page that got taller. It is read once per
+     * scroll frame, which is a value the browser already has.
+     */
+    function journeyAt(scrollY: number): number {
+      const max = document.documentElement.scrollHeight - window.innerHeight
+      if (max <= 0) return 0
+      return Math.min(Math.max(scrollY / max, 0), 1)
+    }
+
+    focus.current = journeyAt(currentScrollY())
+    focus.target = focus.current
+
+    /*
+     * Placed once, now, before any frame runs.
+     *
+     * The loop only writes while something is moving, and at the top of a page
+     * nothing is: `focus.current` already equals `focus.target`, so `draw()`
+     * settles on its first pass without touching the light. Without this line
+     * the group keeps its initial `transform: none` and the light sits at the
+     * viewBox origin — the top-left corner of the artwork, nowhere near
+     * Daulatpur — until the reader happens to scroll.
+     */
+    if (focusRef.current) {
+      const p = pointOnJourney(focus.current)
+      focusRef.current.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`
+    }
+
     function retarget() {
       target.x = pointer.x
       target.y = pointer.y - scrollShare
@@ -446,6 +615,7 @@ function KushtiaMapImpl({
     // more often than it can paint.
     const unsubscribe = onScrollFrame((scrollY) => {
       scrollShare = (Math.min(scrollY, SCROLL_SPAN) / SCROLL_SPAN) * 7
+      focus.target = journeyAt(scrollY)
       retarget()
     })
 
@@ -507,21 +677,29 @@ function KushtiaMapImpl({
               `theme()` lookup: one class cannot change with the theme, and the
               veil in particular has to match the hero's own surface exactly in
               both modes or it reads as a grey panel floating over the map. */}
-          <radialGradient id="km-glow-a" cx="50%" cy="50%">
+          {/* The focus light.
+              Three stops rather than two, and the middle one carries most of
+              the work: a straight centre-to-edge fade has a visible bright core
+              and reads as a ball. Dropping to a third of the opacity by 40% and
+              then trailing to nothing spreads the light over its whole radius,
+              which is what makes it read as an area being lit instead.
+              Dark mode is allowed to be a little stronger — the same alpha over
+              a navy field is far less visible than over an off-white one — but
+              it is still under a fifth of full. `stop-opacity` is set through
+              the class so it can vary with the theme; a plain attribute cannot. */}
+          <radialGradient id="km-focus" cx="50%" cy="50%">
             <stop
               offset="0%"
-              className="[stop-color:#2563EB] dark:[stop-color:#3B82F6]"
-              stopOpacity="0.16"
+              className="[stop-color:#2563EB] [stop-opacity:0.14] dark:[stop-color:#38BDF8] dark:[stop-opacity:0.19]"
             />
-            <stop offset="100%" stopColor="#2563EB" stopOpacity="0" />
-          </radialGradient>
-          <radialGradient id="km-glow-b" cx="50%" cy="50%">
             <stop
-              offset="0%"
-              className="[stop-color:#0EA5E9] dark:[stop-color:#22D3EE]"
-              stopOpacity="0.12"
+              offset="40%"
+              className="[stop-color:#2563EB] [stop-opacity:0.05] dark:[stop-color:#38BDF8] dark:[stop-opacity:0.07]"
             />
-            <stop offset="100%" stopColor="#0EA5E9" stopOpacity="0" />
+            <stop
+              offset="100%"
+              className="[stop-color:#2563EB] [stop-opacity:0] dark:[stop-color:#38BDF8] dark:[stop-opacity:0]"
+            />
           </radialGradient>
           {/* A gentle, even scrim rather than a directional fade.
               While the map was the hero's own backdrop it could dim hardest on
@@ -660,10 +838,30 @@ function KushtiaMapImpl({
           ))}
         </g>
 
-        {/* 7 — atmospheric glow */}
+        {/* 7 — the focus light, travelling the journey.
+
+            This replaced two fixed pools of light, one over Sadar and one over
+            Bheramara. They were pinned to the artwork, so wherever the crop and
+            the parallax happened to put them they sat there for the life of the
+            page — and on a wide screen the Sadar one settled into the right of
+            the frame and read as a glow stuck in the corner rather than as
+            anything to do with the map.
+
+            One light now, and it belongs to the geography: it walks Daulatpur →
+            Bheramara → Mirpur → Kushtia Sadar → Kumarkhali → Khoksa along the
+            same Bézier curves the trunk roads are drawn from, positioned by how
+            far down the page the reader is.
+
+            Two nested groups because each carries a different transform and an
+            element only has one. The outer is the parallax layer, written by
+            the shared loop with every other layer at `DEPTH.glow`, so the light
+            drifts with the map and stays in register with the roads under it.
+            The inner is the journey position. Composing them by nesting is what
+            keeps both on the compositor. */}
         <g ref={setLayer[5]}>
-          <circle cx={sadar.x} cy={sadar.y} r="300" fill="url(#km-glow-a)" />
-          <circle cx={at('bheramara').x} cy={at('bheramara').y} r="240" fill="url(#km-glow-b)" />
+          <g ref={focusRef}>
+            <circle r={FOCUS_RADIUS} fill="url(#km-focus)" />
+          </g>
         </g>
 
         {/* 8 — markers and labels.
