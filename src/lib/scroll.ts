@@ -50,6 +50,20 @@ let latest = 0
 let frame = 0
 let listening = false
 
+/**
+ * True while the smooth-scroll engine is driving.
+ *
+ * When it is, the engine calls `publishScroll` from inside its own frame loop
+ * and the native `scroll` listener stands down. That is what makes the
+ * animated scroll value — the interpolated one the page is actually painted at
+ * — the single source of truth, rather than having the parallax read the raw
+ * document position and drift a frame out of step with the engine moving it.
+ *
+ * Native events remain the fallback: reduced motion, touch, and any browser
+ * where the engine did not start.
+ */
+let driven = false
+
 function flush() {
   frame = 0
   // Copied before iterating: a subscriber that unsubscribes itself during the
@@ -70,9 +84,39 @@ function schedule() {
 }
 
 function onScroll() {
+  // Ignored while the engine is driving: it publishes the interpolated value
+  // from its own loop, and taking the raw document position here as well would
+  // mean two writers racing to set `latest` within a frame.
+  if (driven) return
   // The entire handler. No layout read, no arithmetic, no allocation — reading
   // `scrollY` is the one property the browser can answer without flushing
   // pending style and layout work.
+  latest = window.scrollY
+  schedule()
+}
+
+/**
+ * Called by the smooth-scroll engine, once per frame, with the value the page
+ * is actually being painted at.
+ *
+ * Flushes synchronously rather than scheduling a frame. The engine already IS
+ * the frame loop, so deferring would put every parallax layer exactly one
+ * frame behind the scroll it is supposed to be locked to — which is visible as
+ * the backdrop lagging the content on a fast flick.
+ */
+export function publishScroll(scrollY: number): void {
+  driven = true
+  latest = scrollY
+  if (frame) {
+    cancelAnimationFrame(frame)
+    frame = 0
+  }
+  flush()
+}
+
+/** The engine has stopped; native scroll events take over again. */
+export function releaseScroll(): void {
+  driven = false
   latest = window.scrollY
   schedule()
 }
