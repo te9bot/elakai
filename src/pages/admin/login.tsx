@@ -1,10 +1,10 @@
 import { useState, type FormEvent } from 'react'
-import { Navigate, useLocation } from 'react-router-dom'
+import { Link, Navigate, useLocation } from 'react-router-dom'
 import { AlertTriangle, Eye, EyeOff, Loader2, LogIn } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useAdminAuth } from '@/lib/auth'
+import { useAccount } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 import logo from '../../../assets/elakai-logo.png'
 
@@ -14,9 +14,14 @@ import logo from '../../../assets/elakai-logo.png'
  * Deliberately the plainest screen in the product: one job, no navigation, no
  * marketing. It carries the real lockup so it is obvious at a glance which
  * system is being signed into.
+ *
+ * Distinct from the contributor sign-in at /account/login, which is a public
+ * front door with a signup path, a glass treatment and a brand transition. This
+ * one is a staff entrance and reads like one. Both talk to the same Supabase
+ * session; what separates them is `profiles.role`, not which form was used.
  */
 export default function AdminLoginPage() {
-  const { status, unauthorized, signIn } = useAdminAuth()
+  const { status, signIn } = useAccount()
   const location = useLocation()
 
   const [email, setEmail] = useState('')
@@ -29,6 +34,16 @@ export default function AdminLoginPage() {
     const to = (location.state as { from?: string } | null)?.from ?? '/admin'
     return <Navigate to={to} replace />
   }
+
+  /*
+   * A contributor who lands here signed in.
+   *
+   * Their credentials are correct, so re-offering the form would be a lie. They
+   * are not signed out either — that session is a perfectly good contributor
+   * session and dropping it would cost them their dashboard to no benefit,
+   * which is what the previous version of this screen did to every non-admin.
+   */
+  const wrongAccount = status === 'contributor'
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -80,17 +95,26 @@ export default function AdminLoginPage() {
           </p>
         )}
 
-        {unauthorized && (
-          <p
+        {wrongAccount && (
+          <div
             role="alert"
-            className="mt-6 flex items-start gap-2.5 rounded-control border border-danger/30 bg-danger-soft px-4 py-3 text-meta text-danger-ink"
+            className="mt-6 rounded-control border border-warning/30 bg-warning-soft px-4 py-3 text-meta text-warning-ink"
           >
-            <AlertTriangle className="mt-px size-4 shrink-0" aria-hidden="true" />
-            <span>
-              Those details are correct, but that account is not the ELAKAI
-              administrator. You have been signed out.
-            </span>
-          </p>
+            <p className="flex items-start gap-2.5">
+              <AlertTriangle className="mt-px size-4 shrink-0" aria-hidden="true" />
+              <span>
+                You are signed in, but this account is not an ELAKAI
+                administrator. Your contributor dashboard is where your
+                submissions and points live.
+              </span>
+            </p>
+            <Link
+              to="/contribute"
+              className="mt-2 inline-block pl-[26px] font-bold underline underline-offset-2"
+            >
+              Go to my dashboard
+            </Link>
+          </div>
         )}
 
         <form onSubmit={submit} className="mt-6 space-y-4">

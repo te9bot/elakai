@@ -1,20 +1,29 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { BrandLoader } from '@/components/brand-loader'
-import { useAdminAuth } from '@/lib/auth'
+import { useAccount } from '@/lib/auth'
 
 /**
  * Route guard for /admin/*.
  *
  * This keeps the wrong screen from rendering; it is not what keeps data safe.
  * Anyone can edit their way past a client-side check, so the guarantee lives in
- * Postgres: the RLS policies in supabase/migrations/0002_rls.sql refuse every
- * write, and every draft read, that does not come from an active admin.
+ * Postgres: the policies in supabase/migrations/0008_contributors.sql refuse
+ * every write, and every unpublished read, that does not come from an account
+ * whose `profiles.role` is 'admin' — and both moderation RPCs check the same
+ * thing again before they touch anything.
+ *
+ * A signed-in contributor who reaches a /admin URL is a normal event now that
+ * ordinary people hold accounts, so they are sent to their own dashboard rather
+ * than to the admin login form, which would only invite them to try again with
+ * credentials that do not exist.
  */
 export function RequireAdmin({ children }: { children: React.ReactNode }) {
-  const { status } = useAdminAuth()
+  const { status } = useAccount()
   const location = useLocation()
 
   if (status === 'loading') return <BrandLoader className="min-h-dvh" />
+
+  if (status === 'contributor') return <Navigate to="/contribute" replace />
 
   if (status !== 'admin') {
     // `from` survives the round trip so a bookmarked deep link still lands

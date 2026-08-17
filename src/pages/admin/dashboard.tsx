@@ -5,6 +5,7 @@ import {
   ArrowRight,
   EyeOff,
   Image as ImageIcon,
+  Inbox,
   LayoutList,
   Radio,
 } from 'lucide-react'
@@ -12,8 +13,10 @@ import {
 import { ImportPanel } from '@/components/admin/import-panel'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useAccount } from '@/lib/auth'
 import { categoryLabel, LISTING_SECTIONS, sectionLabel, type Listing } from '@/lib/listings'
 import { errorMessage, fetchListingStats } from '@/lib/listings-admin'
+import { adminSubmissionCounts } from '@/lib/submissions'
 import { cn } from '@/lib/utils'
 
 /* ==========================================================================
@@ -125,6 +128,8 @@ export default function AdminDashboardPage() {
         </div>
       </section>
 
+      <ModerationCallout />
+
       <ImportPanel totalListings={stats.data?.total} />
 
       <section className="mt-8">
@@ -160,6 +165,81 @@ export default function AdminDashboardPage() {
         </div>
       </section>
     </>
+  )
+}
+
+/**
+ * The review queue, on the first screen of the panel.
+ *
+ * The single question an administrator opens this panel to answer once
+ * contributions are on — is anything waiting for me — should not require
+ * finding a nav item first. When the queue is empty it says so in one quiet
+ * line rather than disappearing, because "nothing waiting" is itself the
+ * answer and a section that vanishes leaves you wondering whether it broke.
+ *
+ * Renders nothing at all before migration 0008: there is no queue to have an
+ * opinion about, and an empty moderation panel on a site with no contributors
+ * would be the kind of nav-item-that-always-errors this panel avoids.
+ */
+function ModerationCallout() {
+  const { schemaReady } = useAccount()
+
+  const counts = useQuery({
+    queryKey: ['admin', 'submission-counts'],
+    queryFn: adminSubmissionCounts,
+    enabled: schemaReady,
+  })
+
+  if (!schemaReady) return null
+
+  const pending = counts.data?.pending ?? 0
+
+  return (
+    <section className="mt-8">
+      <h2 className="text-heading">Contributor submissions</h2>
+      <p className="mt-1 text-body-sm text-ink-muted">
+        Nothing here is on the public site until it is approved.
+      </p>
+
+      <Link
+        to="/admin/submissions"
+        className={cn(
+          'mt-4 flex flex-wrap items-center gap-4 rounded-card border p-5 shadow-card transition-colors',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+          pending > 0
+            ? 'border-primary/40 bg-primary-soft hover:bg-primary-soft/70'
+            : 'border-line bg-surface hover:bg-surface-2',
+        )}
+      >
+        <span
+          className={cn(
+            'grid size-12 shrink-0 place-items-center rounded-control',
+            pending > 0 ? 'bg-primary text-white' : 'bg-surface-2 text-ink-muted',
+          )}
+        >
+          <Inbox className="size-5" aria-hidden="true" />
+        </span>
+
+        <div className="min-w-0 flex-1">
+          {counts.isPending ? (
+            <Skeleton className="h-7 w-40" />
+          ) : (
+            <p className="text-heading">
+              {pending === 0
+                ? 'Nothing waiting for review'
+                : `${pending} waiting for review`}
+            </p>
+          )}
+          <p className="mt-1 text-meta text-ink-muted">
+            {counts.data
+              ? `${counts.data.approved} approved · ${counts.data.rejected} rejected`
+              : 'Loading the queue…'}
+          </p>
+        </div>
+
+        <ArrowRight className="size-5 shrink-0 text-ink-subtle" aria-hidden="true" />
+      </Link>
+    </section>
   )
 }
 

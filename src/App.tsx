@@ -4,10 +4,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { domAnimation, LazyMotion, MotionConfig } from 'framer-motion'
 
 import { AppShell } from '@/components/layout/app-shell'
-import { AdminAuthProvider } from '@/lib/auth'
+import { AccountProvider } from '@/lib/auth'
 import { LanguageProvider } from '@/lib/i18n'
 import { ThemeProvider } from '@/lib/theme'
 import { RequireAdmin } from '@/components/admin/require-admin'
+import { RequireAccount } from '@/components/account/require-account'
+import { ContributeGateProvider } from '@/components/account/contribute-gate'
 import { RouteFallback } from '@/components/route-fallback'
 
 // The home page is eager: it is `/`, it is what the logo intro dissolves into,
@@ -36,6 +38,28 @@ const AdminLoginPage = lazy(() => import('@/pages/admin/login'))
 const AdminDashboardPage = lazy(() => import('@/pages/admin/dashboard'))
 const AdminListingsPage = lazy(() => import('@/pages/admin/listings'))
 const AdminListingEditPage = lazy(() => import('@/pages/admin/listing-edit'))
+const AdminSubmissionsPage = lazy(() => import('@/pages/admin/submissions'))
+const AdminSubmissionReviewPage = lazy(() => import('@/pages/admin/submission-review'))
+const AdminContributorsPage = lazy(() => import('@/pages/admin/contributors'))
+
+// The contributor screens are lazy for the same reason: a visitor looking up a
+// pharmacy has no use for a submission form, and the whole point of §2 is that
+// they are never asked to have one.
+const AccountLoginPage = lazy(() => import('@/pages/account/login'))
+const AccountSignupPage = lazy(() => import('@/pages/account/signup'))
+const AccountCallbackPage = lazy(() => import('@/pages/account/callback'))
+
+const ContributeShell = lazy(() =>
+  import('@/components/contribute/contribute-shell').then((m) => ({ default: m.ContributeShell })),
+)
+const ContributeOverviewPage = lazy(() => import('@/pages/contribute/overview'))
+const ContributeSubmissionsPage = lazy(() => import('@/pages/contribute/submissions'))
+const ContributeSubmissionDetailPage = lazy(
+  () => import('@/pages/contribute/submission-detail'),
+)
+const ContributeSubmitPage = lazy(() => import('@/pages/contribute/submit'))
+const ContributePointsPage = lazy(() => import('@/pages/contribute/points'))
+const ContributeProfilePage = lazy(() => import('@/pages/contribute/profile'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -58,7 +82,14 @@ function lazyRoute(Component: React.ComponentType) {
 const router = createBrowserRouter(
   [
     {
-      element: <AppShell />,
+      // The gate provider wraps the public shell rather than the whole router,
+      // because it renders a dialog and a dialog belongs to the pages that can
+      // open it. The auth screens and the admin panel have no Contribute button.
+      element: (
+        <ContributeGateProvider>
+          <AppShell />
+        </ContributeGateProvider>
+      ),
       children: [
         // The one home page, at the root. It is not wrapped in `lazyRoute`
         // because it is not lazy — see the import above.
@@ -80,9 +111,49 @@ const router = createBrowserRouter(
         { path: '/healthcare/:slug', element: lazyRoute(HealthProfilePage) },
         { path: '/services', element: lazyRoute(ServicesPage) },
         { path: '/rentals', element: lazyRoute(RentalsPage) },
+
+        // The contributor dashboard lives inside the public shell — same
+        // header, same footer, same district map behind it — because §12 asks
+        // for a section of ELAKAI rather than a second application that
+        // happens to share a logo.
+        //
+        // RequireAccount wraps only this subtree. No public route is behind it,
+        // which is the whole of §2: a visitor can read everything here without
+        // an account, and is asked for one only when they try to write.
+        {
+          path: '/contribute',
+          element: (
+            <RequireAccount>
+              <Suspense fallback={<RouteFallback />}>
+                <ContributeShell />
+              </Suspense>
+            </RequireAccount>
+          ),
+          children: [
+            { index: true, element: lazyRoute(ContributeOverviewPage) },
+            { path: 'submissions', element: lazyRoute(ContributeSubmissionsPage) },
+            { path: 'submissions/:id', element: lazyRoute(ContributeSubmissionDetailPage) },
+            { path: 'submit', element: lazyRoute(ContributeSubmitPage) },
+            { path: 'points', element: lazyRoute(ContributePointsPage) },
+            { path: 'profile', element: lazyRoute(ContributeProfilePage) },
+            { path: '*', element: lazyRoute(NotFoundPage) },
+          ],
+        },
+
         { path: '*', element: lazyRoute(NotFoundPage) },
       ],
     },
+
+    // Outside AppShell: the auth screens are full-bleed by design, and the
+    // site header offering a Contribute button on the page that exists to sign
+    // someone in so they can contribute is a loop.
+    { path: '/account/login', element: lazyRoute(AccountLoginPage) },
+    { path: '/account/signup', element: lazyRoute(AccountSignupPage) },
+    // Where the confirmation link in the signup email lands. This path must be
+    // listed under Authentication -> URL Configuration -> Redirect URLs in the
+    // Supabase dashboard, or the link falls back to the Site URL and the
+    // visitor's original intent is lost. See supabase/CONTRIBUTORS.md.
+    { path: '/account/callback', element: lazyRoute(AccountCallbackPage) },
     // Outside AppShell: the admin panel has its own chrome, and the public
     // header, bottom nav and footer have no business on it.
     { path: '/admin/login', element: lazyRoute(AdminLoginPage) },
@@ -113,6 +184,14 @@ const router = createBrowserRouter(
         // route here: creating has no id to address, so it stays the inline
         // form on the screen above.
         { path: 'listings/:id/edit', element: lazyRoute(AdminListingEditPage) },
+
+        // Moderation. These are registered unconditionally even though the
+        // sidebar hides them until migration 0008 is applied: a bookmarked
+        // review URL should reach a screen that explains itself, not the
+        // 404 that an unregistered route would give.
+        { path: 'submissions', element: lazyRoute(AdminSubmissionsPage) },
+        { path: 'submissions/:id', element: lazyRoute(AdminSubmissionReviewPage) },
+        { path: 'contributors', element: lazyRoute(AdminContributorsPage) },
 
         // Anything else under /admin is a mistyped or stale URL, not a screen.
         { path: '*', element: lazyRoute(NotFoundPage) },
@@ -149,14 +228,16 @@ export function App() {
                 that default cannot quietly reintroduce a half-reduced page.
                 See src/lib/motion.ts for the decision this belongs to. */}
             <MotionConfig reducedMotion="never">
-              {/* Wraps the router so the guard and the login screen share one
+              {/* Wraps the router so the guards, the auth screens, the
+                  contributor dashboard and the admin panel all share one
                   session; it resolves to 'unconfigured' and costs nothing when
-                  no backend is set. */}
-              <AdminAuthProvider>
+                  no backend is set. A logged-out visitor resolves to 'guest',
+                  which is the state the entire public site is designed for. */}
+              <AccountProvider>
                 {/* startTransition keeps route-chunk loading from blocking input
                     on a slow device, which matters more here than usual. */}
                 <RouterProvider router={router} future={{ v7_startTransition: true }} />
-              </AdminAuthProvider>
+              </AccountProvider>
             </MotionConfig>
           </LazyMotion>
         </QueryClientProvider>

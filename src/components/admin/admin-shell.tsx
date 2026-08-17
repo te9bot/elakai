@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import {
   Building2,
+  CheckCircle2,
   ExternalLink,
   Home,
+  Inbox,
   LayoutDashboard,
   LayoutList,
   LogOut,
@@ -12,11 +15,14 @@ import {
   Siren,
   Stethoscope,
   Sun,
+  Users,
   X,
+  XCircle,
 } from 'lucide-react'
 
 import { ToastProvider } from '@/components/admin/toast'
-import { useAdminAuth } from '@/lib/auth'
+import { useAccount } from '@/lib/auth'
+import { adminSubmissionCounts } from '@/lib/submissions'
 import { useTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 import logo from '../../../assets/elakai-logo.png'
@@ -33,18 +39,27 @@ import logo from '../../../assets/elakai-logo.png'
  * exist yet trains the person using it to distrust the navigation.
  * ========================================================================== */
 
+type NavItem = {
+  to: string
+  label: string
+  icon: typeof Home
+  /** Renders the pending-submission count beside the label. */
+  badge?: 'pending'
+}
+
 /**
  * Only sections backed by a real table appear.
  *
- * This Supabase project contains `public.listings` and nothing else, so the
- * per-entity screens (facilities, doctors, businesses, rentals, emergency
- * contacts, homepage bands) have nothing to read or write. Their routes are
- * still registered in App.tsx — the code is intact and works against a project
- * that has those tables — but they are kept out of the sidebar, because a nav
- * item that always errors trains the person using it to distrust the whole
- * navigation.
+ * This Supabase project contains `public.listings` and, once migration 0008 is
+ * applied, the four contributor tables. The per-entity screens that never
+ * existed here (facilities, doctors, businesses, rentals, emergency contacts,
+ * homepage bands) are still kept out of the sidebar, because a nav item that
+ * always errors trains the person using it to distrust the whole navigation.
+ *
+ * The Moderation group follows the same rule: it is hidden entirely until the
+ * contributor schema is present, rather than shown and broken.
  */
-const NAV: { heading: string; items: { to: string; label: string; icon: typeof Home }[] }[] = [
+const CONTENT_NAV: { heading: string; items: NavItem[] }[] = [
   {
     heading: 'Overview',
     items: [{ to: '/admin', label: 'Dashboard', icon: LayoutDashboard }],
@@ -64,11 +79,40 @@ const NAV: { heading: string; items: { to: string; label: string; icon: typeof H
   },
 ]
 
+const MODERATION_NAV: { heading: string; items: NavItem[] } = {
+  heading: 'Moderation',
+  items: [
+    { to: '/admin/submissions', label: 'Pending review', icon: Inbox, badge: 'pending' },
+    { to: '/admin/submissions?queue=approved', label: 'Approved', icon: CheckCircle2 },
+    { to: '/admin/submissions?queue=rejected', label: 'Rejected', icon: XCircle },
+    { to: '/admin/contributors', label: 'Contributors', icon: Users },
+  ],
+}
+
 export function AdminShell() {
-  const { profile, signOut } = useAdminAuth()
+  const { profile, signOut, schemaReady } = useAccount()
   const { theme, toggleTheme } = useTheme()
   const location = useLocation()
   const [open, setOpen] = useState(false)
+
+  /*
+   * The pending count, in the sidebar.
+   *
+   * The single most useful number in the panel — "is there anything waiting for
+   * me" — and putting it on the nav item means it is answered on every screen
+   * rather than only after navigating to the queue. Refetched on an interval
+   * because submissions arrive while the tab is open and a stale zero is worse
+   * than no badge at all.
+   */
+  const pending = useQuery({
+    queryKey: ['admin', 'submission-counts'],
+    queryFn: adminSubmissionCounts,
+    enabled: schemaReady,
+    refetchInterval: 60_000,
+  })
+
+  const NAV = schemaReady ? [...CONTENT_NAV, MODERATION_NAV] : CONTENT_NAV
+  const pendingCount = pending.data?.pending ?? 0
 
   // A drawer that survives navigation traps the person behind it on a phone.
   useEffect(() => setOpen(false), [location.pathname])
@@ -110,16 +154,21 @@ export function AdminShell() {
               <ul className="space-y-0.5">
                 {group.items.map((item) => {
                   // NavLink's own `isActive` compares pathnames only, so the
-                  // four entries that share /admin/listings would all light up
-                  // at once. The section is what distinguishes them, so it is
-                  // what gets compared.
+                  // entries that share /admin/listings — and the three that
+                  // share /admin/submissions — would all light up at once. The
+                  // distinguishing query parameter is what gets compared.
                   const [path, query = ''] = item.to.split('?')
-                  const itemSection = new URLSearchParams(query).get('section') ?? ''
-                  const currentSection = new URLSearchParams(location.search).get('section') ?? ''
+                  const itemParams = new URLSearchParams(query)
+                  const current = new URLSearchParams(location.search)
+                  const sameParam = (key: string) =>
+                    (itemParams.get(key) ?? '') === (current.get(key) ?? '')
+
                   const active =
                     path === '/admin'
                       ? location.pathname === '/admin'
-                      : location.pathname === path && currentSection === itemSection
+                      : location.pathname === path && sameParam('section') && sameParam('queue')
+
+                  const showBadge = item.badge === 'pending' && pendingCount > 0
 
                   return (
                     <li key={item.to}>
@@ -134,7 +183,17 @@ export function AdminShell() {
                         )}
                       >
                         <item.icon className="size-[18px] shrink-0" aria-hidden="true" />
-                        {item.label}
+                        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                        {showBadge && (
+                          <span
+                            className="tnum shrink-0 rounded-pill bg-primary px-2 py-0.5 text-micro font-bold text-white"
+                            // Read as "3 waiting", not as a bare number floating
+                            // beside a link.
+                            aria-label={`${pendingCount} waiting for review`}
+                          >
+                            {pendingCount}
+                          </span>
+                        )}
                       </NavLink>
                     </li>
                   )
@@ -147,7 +206,7 @@ export function AdminShell() {
         <div className="border-t border-line p-3">
           <div className="mb-2 min-w-0 px-2">
             <p className="truncate text-body-sm font-bold">
-              {profile?.display_name ?? profile?.email ?? 'Signed in'}
+              {profile?.fullName ?? profile?.email ?? 'Signed in'}
             </p>
             <p className="truncate text-meta capitalize text-ink-subtle">{profile?.role}</p>
           </div>

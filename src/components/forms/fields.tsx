@@ -8,13 +8,25 @@ import { cn } from '@/lib/utils'
 /* ==========================================================================
  * Form primitives.
  *
- * The rule these exist to enforce: an admin is never asked to type structured
+ * The rule these exist to enforce: nobody is ever asked to type structured
  * text. No JSON, no comma-separated ids, no "enter the hours as an array".
  * Anything with shape gets a control that understands that shape.
  *
  * Bilingual fields sit side by side rather than on separate tabs, because a
  * record with an English name and no Bengali one is the common failure and it
  * should be visible while typing, not discovered later on the public site.
+ *
+ * WHY THIS IS NOT IN components/admin/
+ *
+ * It used to be, and it was right to be: the admin listing form was the only
+ * form in the product. The contributor submission form is the second, and it
+ * asks for very nearly the same things in very nearly the same order — so it
+ * uses these, rather than a parallel set that would drift a token at a time
+ * until the two forms stopped looking like one product.
+ *
+ * Moving it out of `admin/` is the whole of that change. No component here was
+ * modified, and the two admin screens that already used them import from the
+ * new path.
  * ========================================================================== */
 
 export function FormSection({

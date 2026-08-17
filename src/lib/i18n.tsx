@@ -29,6 +29,8 @@ const en = {
   'nav.search': 'Search',
   'nav.menu': 'Menu',
   'nav.primary': 'Primary',
+  'nav.contribute': 'Contribute',
+  'nav.myAccount': 'My contributions',
 
   'a11y.skip': 'Skip to main content',
   'a11y.toggleTheme': 'Toggle dark mode',
@@ -332,6 +334,8 @@ const bn: Record<TranslationKey, string> = {
   'nav.search': 'খুঁজুন',
   'nav.menu': 'মেনু',
   'nav.primary': 'প্রধান',
+  'nav.contribute': 'তথ্য যোগ করুন',
+  'nav.myAccount': 'আমার অবদান',
 
   'a11y.skip': 'মূল অংশে যান',
   'a11y.toggleTheme': 'ডার্ক মোড চালু/বন্ধ',

@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 
 import { ConfirmDialog } from '@/components/admin/confirm'
-import { Select } from '@/components/admin/form'
+import { Select } from '@/components/forms/fields'
 import { ListingDialog } from '@/components/admin/listing-dialog'
 import { useToast } from '@/components/admin/toast'
 import { Button } from '@/components/ui/button'

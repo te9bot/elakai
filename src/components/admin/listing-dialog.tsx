@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Loader2, Save } from 'lucide-react'
 
 import { ConfirmDialog } from '@/components/admin/confirm'
-import { Field, Select, ServiceListField, TextArea } from '@/components/admin/form'
+import { Field, Select, ServiceListField, TextArea } from '@/components/forms/fields'
 import { ImageUpload, type ImageSelection } from '@/components/admin/image-upload'
 import { AdminModal, ModalSection, ModalSections } from '@/components/admin/modal'
 import { useToast } from '@/components/admin/toast'

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { Languages, Moon, Search, Sun } from 'lucide-react'
+import { Languages, Moon, Plus, Search, Sun, UserRound } from 'lucide-react'
 import { Logo } from './logo'
 import { SearchBar } from '@/components/search/search-bar'
+import { useContribute } from '@/components/account/contribute-gate'
+import { useAccount } from '@/lib/auth'
 import { useI18n } from '@/lib/i18n'
 import { useTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
@@ -22,6 +24,8 @@ const LINKS = [
 export function TopNav() {
   const { t, locale, toggleLocale } = useI18n()
   const { theme, toggleTheme } = useTheme()
+  const { status } = useAccount()
+  const { contribute } = useContribute()
   const navigate = useNavigate()
   const location = useLocation()
   const [scrolled, setScrolled] = useState(false)
@@ -81,9 +85,20 @@ export function TopNav() {
         </nav>
 
         <div className="ml-auto flex items-center gap-1.5">
-          {/* On desktop the search bar lives in the header; on mobile it is a page element. */}
+          {/*
+           * On a wide desktop the search bar lives in the header; below that it
+           * collapses to an icon and search is a page element.
+           *
+           * The breakpoint is `xl`, not `lg`. Between 1024px and 1280px the row
+           * has to hold the lockup, five nav links, a 256px search field, two
+           * icon buttons and the Contribute call to action, and it does not:
+           * the button was pushed off the right edge and the header scrolled
+           * sideways. The search field is the widest thing in that row and the
+           * one with an equivalent one-tap affordance already built, so it is
+           * the thing that gives way.
+           */}
           {!onSearchPage && (
-            <div className="hidden w-64 lg:block xl:w-80">
+            <div className="hidden w-64 xl:block xl:w-72">
               <SearchBar
                 asButton
                 value=""
@@ -99,7 +114,7 @@ export function TopNav() {
               to="/search"
               aria-label={t('nav.search')}
               className={cn(
-                'grid size-11 place-items-center rounded-full text-ink-muted lg:hidden',
+                'grid size-11 place-items-center rounded-full text-ink-muted xl:hidden',
                 'transition-colors hover:bg-surface-2 hover:text-ink',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
               )}
@@ -134,6 +149,51 @@ export function TopNav() {
           >
             {theme === 'dark' ? <Sun className="size-5" /> : <Moon className="size-5" />}
           </button>
+
+          {/*
+           * The one place the site ever asks for an account, and it asks by
+           * offering something rather than by demanding something: signed out
+           * it is "Contribute", not "Sign in". Pressing it opens the gate
+           * dialog, which has Continue browsing as a first-class third option.
+           *
+           * Signed in it becomes the way back to the dashboard. Deliberately
+           * not a dropdown with a sign-out item in it — signing out lives on
+           * the dashboard, where the person can see what they are leaving,
+           * and a menu here would be one more thing between a visitor and an
+           * ambulance number.
+           *
+           * Never rendered while the session is still resolving, so it cannot
+           * flash "Contribute" at somebody who is already signed in.
+           */}
+          {status === 'loading' ? (
+            <span className="size-11" aria-hidden="true" />
+          ) : status === 'guest' || status === 'unconfigured' ? (
+            <button
+              type="button"
+              onClick={() => contribute()}
+              className={cn(
+                'ml-1 inline-flex h-11 items-center gap-2 rounded-full bg-primary px-4 text-body-sm font-semibold text-white shadow-card',
+                'transition-colors hover:bg-primary-hover',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
+              )}
+            >
+              <Plus className="size-[18px]" aria-hidden="true" />
+              <span className="hidden sm:inline">{t('nav.contribute')}</span>
+            </button>
+          ) : (
+            <Link
+              to="/contribute"
+              aria-label={t('nav.myAccount')}
+              className={cn(
+                'ml-1 inline-flex h-11 items-center gap-2 rounded-full border border-line bg-surface px-3.5 text-body-sm font-semibold text-ink shadow-card',
+                'transition-colors hover:bg-surface-2',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+              )}
+            >
+              <UserRound className="size-[18px]" aria-hidden="true" />
+              <span className="hidden lg:inline">{t('nav.myAccount')}</span>
+            </Link>
+          )}
         </div>
       </div>
     </header>
