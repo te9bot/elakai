@@ -250,6 +250,59 @@
 }
 
 @layer components {
+  /* ------------------------------------------------------------------ */
+  /* The content gutter                                                  */
+  /*                                                                     */
+  /* tailwind.config.ts asks for 1rem / 1.5rem / 2rem, and the build was  */
+  /* only ever emitting the first one. Verified against the compiled      */
+  /* stylesheet, where `.container` had exactly two rules: the 1rem       */
+  /* padding, and `max-width: 1280px` at 1280px. Nothing for sm or lg.    */
+  /*                                                                     */
+  /* The cause is that Tailwind generates the container's *padding* media */
+  /* queries from `theme.container.screens`, not from the global screens. */
+  /* That key is overridden to `{ '2xl': '1280px' }` so the container      */
+  /* stays fluid until it caps — which is the behaviour we want — and the */
+  /* side effect is that sm and lg no longer exist as far as the padding  */
+  /* map is concerned, so those two entries are dropped without warning.  */
+  /*                                                                     */
+  /* Every section on the site uses `.container`, so the symptom was      */
+  /* uniform rather than ragged: navbar, hero, category rail and every    */
+  /* content section shared one boundary, all of them 16px from the       */
+  /* container edge on a 1920px monitor instead of the intended 32px.     */
+  /*                                                                      */
+  /* Written here rather than fixed in the config because the alternative */
+  /* is listing every breakpoint under `container.screens`, and that also */
+  /* sets a max-width at each one — turning the container from "fluid,    */
+  /* then capped at 1280" into a stepped set of fixed widths. That is a   */
+  /* different layout, not an alignment fix.                              */
+  /* ------------------------------------------------------------------ */
+  /* One number, used twice. `--bleed` is what `.rail-bleed` cancels the
+     gutter with, and it defaulted to a hard 1rem — so widening the gutter
+     without this would leave every full-bleed rail stopping 1rem short of the
+     screen edge on desktop, trading one misalignment for another. Tying it to
+     the gutter means a rail reaches the edge at every width by construction.
+
+     `.rail-bleed` elements sit inside the container, so they inherit it; the
+     two call sites that opt out (`lg:[--bleed:0px]`, and the hero's
+     `lg:mx-0 lg:px-0`) set it on themselves and still win. */
+  .container {
+    --gutter: 1rem;
+    --bleed: var(--gutter);
+    padding-inline: var(--gutter);
+  }
+
+  @media (min-width: 640px) {
+    .container {
+      --gutter: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container {
+      --gutter: 2rem;
+    }
+  }
+
   /* The map-grid texture behind the hero. Pure CSS — no image request. */
   .surveyor-grid {
     background-image:
