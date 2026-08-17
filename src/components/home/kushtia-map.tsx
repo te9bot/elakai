@@ -517,11 +517,24 @@ function KushtiaMapImpl({
     if (!nodes.length) return
 
     let frame = 0
-    const start = performance.now()
+
+    /*
+     * The animation clock, kept across pauses.
+     *
+     * `base` is when the current run started and `elapsed` is how much time the
+     * animation had already accumulated before it. Reading `performance.now()`
+     * directly would mean a panel that was off-screen for two minutes resumed
+     * two minutes further along its sine — the light would jump to a different
+     * town and the layers would snap to new offsets the moment it scrolled back
+     * into view.
+     */
+    let base = performance.now()
+    let elapsed = 0
 
     function draw(now: number) {
       frame = requestAnimationFrame(draw)
-      const t = (now - start) / 1000
+      elapsed = now - base
+      const t = elapsed / 1000
 
       // Seven writes, no reads — the same discipline as the backdrop loop, for
       // the same reason: transforms on an SVG group stay on the compositor as
@@ -553,25 +566,80 @@ function KushtiaMapImpl({
       }
     }
 
-    // Unlike the backdrop this never settles, so `will-change` is honest here:
-    // something really is moving for the whole life of the page.
-    for (const node of nodes) node?.style.setProperty('will-change', 'transform')
+    /*
+     * ONE LOOP, AND IT ONLY RUNS WHEN IT IS EARNING ITS KEEP.
+     *
+     * This started unconditionally on mount and never stopped. On the auth page
+     * that is the worst possible timing: the map is the heaviest thing in the
+     * tree — a few hundred paths since the district was filled in — and it was
+     * competing with React's first commit and with Supabase's session restore
+     * for the same main thread, on the one screen whose entire job is to accept
+     * a password. It also kept running behind the contributor dashboard after
+     * the form navigated away.
+     *
+     * Three things fix that, in order of how much they matter:
+     *
+     *   1. It does not start until the browser is idle. The login form is
+     *      interactive first; the map arrives a moment later and nobody is
+     *      waiting on it. `requestIdleCallback` where it exists, a short
+     *      timeout where it does not (Safari).
+     *   2. It stops when the panel is off-screen, via IntersectionObserver.
+     *   3. It stops when the tab is hidden, which it already did.
+     *
+     * `start` is captured when the loop actually begins rather than at mount,
+     * so a deferred or paused start does not make the light jump to wherever
+     * the clock had wandered while nothing was drawing.
+     */
+    let running = false
+    let visible = false
 
-    function onVisibility() {
-      if (document.visibilityState === 'visible') {
-        frame = requestAnimationFrame(draw)
-      } else {
-        cancelAnimationFrame(frame)
-      }
+    function play() {
+      if (running || !visible || document.visibilityState !== 'visible') return
+      running = true
+      // Hinted only while something is actually moving. Seven promoted layers
+      // held for the life of the page is real memory on a cheap phone.
+      for (const node of nodes) node?.style.setProperty('will-change', 'transform')
+      base = performance.now() - elapsed
+      frame = requestAnimationFrame(draw)
     }
 
-    frame = requestAnimationFrame(draw)
+    function pause() {
+      if (!running) return
+      running = false
+      cancelAnimationFrame(frame)
+      for (const node of nodes) node?.style.removeProperty('will-change')
+    }
+
+    function onVisibility() {
+      if (document.visibilityState === 'visible') play()
+      else pause()
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        visible = entries.some((e) => e.isIntersecting)
+        if (visible) play()
+        else pause()
+      },
+      // A little margin so it is already moving by the time it scrolls in.
+      { rootMargin: '96px' },
+    )
+    if (ref.current) observer.observe(ref.current)
+
+    const idle = window.requestIdleCallback
+      ? window.requestIdleCallback(() => play(), { timeout: 900 })
+      : window.setTimeout(play, 260)
+
     document.addEventListener('visibilitychange', onVisibility)
 
     return () => {
-      cancelAnimationFrame(frame)
+      if (window.cancelIdleCallback && typeof idle === 'number') {
+        window.cancelIdleCallback(idle)
+      }
+      window.clearTimeout(idle as number)
+      observer.disconnect()
       document.removeEventListener('visibilitychange', onVisibility)
-      for (const node of nodes) node?.style.removeProperty('will-change')
+      pause()
     }
   }, [panel, reduced])
 
