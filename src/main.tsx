@@ -11,9 +11,15 @@ import '@fontsource/noto-sans-bengali/700.css'
 
 import './index.css'
 import { App } from './App'
+import { registerServiceWorker } from './lib/pwa'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
   </StrictMode>,
 )
+
+// After render, not before: registration is not on the path to first paint,
+// and the listener it installs only matters once the app is up. See lib/pwa.ts
+// for why this is hand-written rather than the injected registerSW.js.
+registerServiceWorker()

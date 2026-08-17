@@ -51,6 +51,19 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+
+      /*
+       * We register the service worker ourselves, in src/lib/pwa.ts.
+       *
+       * The script this would otherwise inject only calls `.register()`. It
+       * never notices that an update has activated, so a returning visitor
+       * kept seeing the previous build until their *next* navigation — which
+       * is what made a shipped deploy look like it had not shipped at all.
+       *
+       * `null` stops the injection so the two registrations cannot race.
+       */
+      injectRegister: null,
+
       includeAssets: ['favicon.svg', 'offline.html'],
       manifest: {
         name: 'ELAKAI — Your Local Information. One Place.',
