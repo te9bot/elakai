@@ -12,7 +12,7 @@ const cardVariants = cva(
         lifted: 'shadow-lift',
       },
       interactive: {
-        true: 'cursor-pointer hover:shadow-card-hover hover:border-line motion-safe:hover:-translate-y-0.5 active:translate-y-0 active:shadow-card',
+        true: 'cursor-pointer hover:shadow-card-hover hover:border-line hover:-translate-y-0.5 active:translate-y-0 active:shadow-card',
         false: '',
       },
     },

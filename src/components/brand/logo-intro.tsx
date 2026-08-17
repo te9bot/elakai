@@ -315,7 +315,7 @@ export function LogoIntro() {
     >
       <div
         aria-hidden="true"
-        className="glow-primary absolute size-[min(120vw,720px)] motion-safe:animate-float"
+        className="glow-primary absolute size-[min(120vw,720px)] animate-float"
       />
 
       <m.div

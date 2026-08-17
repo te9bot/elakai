@@ -36,14 +36,14 @@ export function BrandLoader({
       <span className="relative grid place-items-center">
         <span
           aria-hidden="true"
-          className="glow-primary pointer-events-none absolute -inset-12 motion-safe:animate-float"
+          className="glow-primary pointer-events-none absolute -inset-12 animate-float"
         />
         <img
           src={logo}
           alt=""
           width={512}
           height={471}
-          className="relative h-20 w-auto object-contain motion-safe:animate-breathe sm:h-24"
+          className="relative h-20 w-auto object-contain animate-breathe sm:h-24"
         />
       </span>
 
@@ -56,7 +56,7 @@ export function BrandLoader({
         aria-hidden="true"
         className="brand-progress relative h-1 w-40 overflow-hidden rounded-pill bg-surface-2"
       >
-        <span className="absolute inset-y-0 w-1/3 rounded-pill bg-primary/70 motion-safe:animate-bar-slide" />
+        <span className="absolute inset-y-0 w-1/3 rounded-pill bg-primary/70 animate-bar-slide" />
       </span>
     </div>
   )

@@ -6,7 +6,7 @@ import { domAnimation, LazyMotion, MotionConfig } from 'framer-motion'
 import { AppShell } from '@/components/layout/app-shell'
 import { AccountProvider } from '@/lib/auth'
 import { LanguageProvider } from '@/lib/i18n'
-import { useMotionAttribute, useReducedMotion } from '@/lib/motion'
+import { useMotionAttribute } from '@/lib/motion'
 import { ThemeProvider } from '@/lib/theme'
 import { RequireAdmin } from '@/components/admin/require-admin'
 import { RequireAccount } from '@/components/account/require-account'
@@ -222,38 +222,19 @@ export function App() {
   // the setting would only reach the JavaScript half of the site.
   useMotionAttribute()
 
-  /*
-   * The same resolved answer the rest of the site uses, handed to framer.
-   *
-   * This was `reducedMotion="user"`, which reads `prefers-reduced-motion`
-   * straight from the OS. That sounds identical to what lib/motion.ts does and
-   * is not, because that module resolves the *site's own* control first: an
-   * explicit Full means full, whatever the machine asks for, and an explicit
-   * Reduced means reduced even on a machine that asks for nothing.
-   *
-   * Going to the OS directly threw that override away for every framer
-   * animation. Someone on a machine with the OS flag set could choose Full,
-   * see the CSS-driven parallax come back — `useMotionAttribute` publishes the
-   * attribute the `motion-safe:` utilities key off — and still have every
-   * framer animation stay frozen, with nothing on screen to explain the
-   * difference. That is precisely the half-implemented state the long comment
-   * above `useMotionAttribute` exists to prevent, reproduced in the other half.
-   *
-   * `never` rather than `undefined` for the full case: it has to actively
-   * override framer's own media-query check, not merely decline to set it.
-   */
-  const reduced = useReducedMotion()
-
   return (
     <ThemeProvider>
       <LanguageProvider>
         <QueryClientProvider client={queryClient}>
           {/* domAnimation only — drops roughly 25kb versus the full feature set. */}
           <LazyMotion features={domAnimation} strict>
-            {/* The OS preference is still respected — it is what
-                lib/motion.ts falls back to when the site's own control has not
-                been touched, which is the default state. See the note above. */}
-            <MotionConfig reducedMotion={reduced ? 'always' : 'never'}>
+            {/* `never`, not `user`.
+                `user` reads `prefers-reduced-motion` straight from the OS,
+                which would leave every framer animation frozen on a machine
+                whose flag is set while the CSS half kept playing — a
+                half-reduced site with nothing on screen to explain it. ELAKAI
+                plays its full motion for everyone; see src/lib/motion.ts. */}
+            <MotionConfig reducedMotion="never">
               {/* Wraps the router so the guards, the auth screens, the
                   contributor dashboard and the admin panel all share one
                   session; it resolves to 'unconfigured' and costs nothing when

@@ -93,7 +93,7 @@ export function RentalCard({
         className={cn(
           'list-perf relative overflow-hidden rounded-card border border-line bg-surface',
           'shadow-card transition-[box-shadow,transform,border-color] duration-300 ease-out',
-          'motion-safe:group-hover:-translate-y-1',
+          'group-hover:-translate-y-1',
           'group-focus-within:border-primary/40',
           // The hover glow is the same accent at low alpha, carried in on a
           // custom property so it stays one source of colour per card.

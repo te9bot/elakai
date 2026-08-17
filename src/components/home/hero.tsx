@@ -216,8 +216,8 @@ export function HomeHero({ isPrecise }: { isPrecise: boolean }) {
         className="absolute inset-x-0 top-0 -z-10 h-72 bg-gradient-to-b from-primary/[0.07] to-transparent"
       />
       <m.div aria-hidden="true" className="absolute inset-0 -z-10" style={par(glowY)}>
-        <div className="glow-primary absolute -left-40 -top-48 size-[620px] motion-safe:animate-float" />
-        <div className="glow-success absolute -right-32 top-16 size-[520px] motion-safe:animate-float-alt" />
+        <div className="glow-primary absolute -left-40 -top-48 size-[620px] animate-float" />
+        <div className="glow-success absolute -right-32 top-16 size-[520px] animate-float-alt" />
       </m.div>
 
       <div className="container relative py-7 sm:py-12 lg:py-16">
@@ -262,7 +262,7 @@ export function HomeHero({ isPrecise }: { isPrecise: boolean }) {
               {isPrecise ? (
                 // A live fix earns a live indicator; a default one does not.
                 <span className="relative grid size-3.5 place-items-center" aria-hidden="true">
-                  <span className="absolute size-2 rounded-full bg-primary/50 motion-safe:animate-pulse-ring" />
+                  <span className="absolute size-2 rounded-full bg-primary/50 animate-pulse-ring" />
                   <span className="relative size-1.5 rounded-full bg-primary" />
                 </span>
               ) : (
@@ -307,7 +307,7 @@ export function HomeHero({ isPrecise }: { isPrecise: boolean }) {
           >
             <div
               aria-hidden="true"
-              className="glow-danger pointer-events-none absolute -inset-8 -z-10 motion-safe:animate-float-alt"
+              className="glow-danger pointer-events-none absolute -inset-8 -z-10 animate-float-alt"
             />
             <HeroEmergency contacts={heroContacts} />
           </m.div>

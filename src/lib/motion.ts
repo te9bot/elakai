@@ -1,203 +1,87 @@
-import { useEffect, useSyncExternalStore } from 'react'
-
-import { STORAGE_KEYS } from './config'
+import { useEffect } from 'react'
 
 /* ==========================================================================
  * Whether the site runs in reduced motion. One function, one answer, one place
  * to change it.
  *
- * THREE STATES, NOT TWO
+ * IT IS ALWAYS FULL.
  *
- *   system   follow `prefers-reduced-motion`. The default.
- *   full     play everything, whatever the OS says.
- *   reduced  play nothing non-essential, whatever the OS says.
+ * ELAKAI plays its motion for everyone: the parallax, the map backdrop's
+ * drift, the contributor page's map, the logo intro, the marquees, the
+ * count-ups and the smooth scrolling. There is no setting, no stored
+ * preference, and no branch on `prefers-reduced-motion`. Asked for explicitly
+ * by the site owner.
  *
- * WHY THE OVERRIDE EXISTS, AND IT IS NOT A HEDGE
+ * WHAT WAS HERE BEFORE
  *
- * This function used to return a hard `false` for everyone. That was recorded
- * as a deliberate decision by the site owner — ELAKAI plays its motion whatever
- * the accessibility panel says — and honouring the OS preference instead was
- * asked for twice, so it is honoured.
+ * A three-state preference — follow the system, force full, force reduced —
+ * backed by localStorage and surfaced as a control in the footer. That control
+ * and its storage key are gone. The history is worth one paragraph because it
+ * is the reason this file looks over-built for what it now does:
  *
- * But there is a fact behind that original decision worth writing down, because
- * it explains why a plain boolean is not enough: the machine ELAKAI is built on
- * has `prefers-reduced-motion: reduce` switched on. So "just respect the OS" and
- * "keep the animations" are in direct conflict *for the person who asked for
- * both*. Following the OS alone would have shown the owner a completely static
- * site and read as though the animation work had been deleted.
+ * The function originally returned a hard `false`, then was changed to honour
+ * the OS, then gained the three-state override because those two turned out to
+ * conflict for the person who asked for both — the machine ELAKAI is developed
+ * on has `prefers-reduced-motion: reduce` switched on, so "respect the OS"
+ * showed the owner a completely static site and read as though the animation
+ * work had been deleted. The override resolved that. Removing the control
+ * resolves it the other way, permanently.
  *
- * A stored preference resolves it honestly rather than by picking a side.
- * Someone who has asked their device for less motion gets less motion, which is
- * the accessible default and the correct one. Anyone who wants the full
- * experience regardless — including on a machine whose OS flag is set for
- * unrelated reasons — can say so, once, and the site remembers.
+ * WHAT THIS COSTS, PLAINLY
  *
- * This is exactly the shape `lib/theme.tsx` already uses for dark mode: a
- * stored choice, falling back to the media query. Same convention, same
- * storage key namespace, no new pattern to learn.
+ * `prefers-reduced-motion` is set by people who get migraines, nausea or
+ * vestibular symptoms from parallax and drifting backgrounds. Ignoring it
+ * means those visitors get the full experience with no way to turn it down.
+ * That is a real cost and it is being accepted deliberately rather than
+ * overlooked.
  *
- * WHAT "REDUCED" TURNS OFF
+ * HOW TO PUT IT BACK
  *
- * The parallax (`useDepth` returns 0, so every displacement multiplies away),
- * the map backdrop's drift, the logo intro's travel, the count-ups, the smooth
- * scrolling, and the `motion-safe:` ambient animations.
+ * Everything funnels through the two functions below, so it is a small change:
  *
- * What it does not turn off: anything that carries meaning. Spinners still
- * spin, the sign-in transition still plays as a brief hold, focus rings still
- * appear. Reduced motion is not "no feedback".
+ *   1. `useReducedMotion` returns `window.matchMedia('(prefers-reduced-motion:
+ *      reduce)').matches` instead of `false` — ideally through
+ *      `useSyncExternalStore` so a mid-session OS change reaches the UI.
+ *   2. `useMotionAttribute` writes `reduced` when it does.
+ *   3. Add back an `html[data-motion='reduced']` block in src/index.css that
+ *      damps animation and transition durations. One rule covers every
+ *      ambient animation at once; do not reach for `motion-safe:` again, which
+ *      never worked here — see the note in tailwind.config.ts.
  *
- * NO PROVIDER
- *
- * An external store read through `useSyncExternalStore` rather than a context,
- * so this stays importable from anywhere — including `lib/parallax.ts`, which
- * is a plain module — and so changing the setting updates every consumer in one
- * pass without another wrapper in App.tsx.
+ * Nothing else branches on motion. Every consumer — lib/parallax.ts,
+ * lib/smooth-scroll.ts, components/home/kushtia-map.tsx, the logo intro, the
+ * count-ups, App.tsx's MotionConfig — reads `useReducedMotion`, and the CSS
+ * half reads the attribute. Those two are the whole surface.
  * ========================================================================== */
 
-export type MotionPreference = 'system' | 'full' | 'reduced'
-
-const QUERY = '(prefers-reduced-motion: reduce)'
-
-function isPreference(value: string | null): value is MotionPreference {
-  return value === 'system' || value === 'full' || value === 'reduced'
-}
-
-function read(): MotionPreference {
-  if (typeof window === 'undefined') return 'system'
-  try {
-    const stored = localStorage.getItem(STORAGE_KEYS.motion)
-    if (isPreference(stored)) return stored
-  } catch {
-    /* private mode */
-  }
-  return 'system'
-}
-
-/* ------------------------------------------------------------------ */
-/* Store                                                               */
-/* ------------------------------------------------------------------ */
-
-const listeners = new Set<() => void>()
-
-let preference: MotionPreference = read()
-
-function emit() {
-  for (const fn of [...listeners]) fn()
-}
-
-function subscribe(fn: () => void): () => void {
-  listeners.add(fn)
-
-  // The OS setting can change while the page is open, and under 'system' that
-  // has to reach the UI. One media-query listener for the whole app, attached
-  // with the first subscriber.
-  const media = typeof window !== 'undefined' ? window.matchMedia(QUERY) : null
-  const onChange = () => emit()
-  media?.addEventListener('change', onChange)
-
-  // Another tab changing the preference should not leave this one disagreeing.
-  const onStorage = (event: StorageEvent) => {
-    if (event.key !== STORAGE_KEYS.motion) return
-    preference = read()
-    emit()
-  }
-  window.addEventListener('storage', onStorage)
-
-  return () => {
-    listeners.delete(fn)
-    media?.removeEventListener('change', onChange)
-    window.removeEventListener('storage', onStorage)
-  }
-}
-
 /**
- * The resolved answer.
+ * Always `false`.
  *
- * Read fresh from the media query each time rather than cached, so `snapshot`
- * changes when the OS setting does and `useSyncExternalStore` re-renders. It is
- * a `matchMedia` read of an already-parsed query — cheap, and not a layout
- * read.
+ * Typed as `boolean` rather than `false` on purpose: every consumer still has
+ * its reduced-motion branch written and compiling, so restoring the preference
+ * is a change to this function and nothing else. Narrowing the return type to
+ * the literal would let TypeScript prune those branches as unreachable and
+ * they would rot.
  */
-function snapshot(): boolean {
-  if (preference === 'full') return false
-  if (preference === 'reduced') return true
-  if (typeof window === 'undefined') return false
-  return window.matchMedia(QUERY).matches
-}
-
-/** Server/first-paint value. The full experience, matching the theme provider. */
-function serverSnapshot(): boolean {
+export function useReducedMotion(): boolean {
   return false
 }
 
-/* ------------------------------------------------------------------ */
-/* Public API                                                          */
-/* ------------------------------------------------------------------ */
-
-/** Typed as `boolean`, not a literal, so the fallbacks behind it stay live. */
-export function useReducedMotion(): boolean {
-  return useSyncExternalStore(subscribe, snapshot, serverSnapshot)
-}
-
 /**
- * Publishes the resolved answer to CSS as `<html data-motion="full|reduced">`.
+ * Publishes the answer to CSS as `<html data-motion="full">`.
  *
- * WHY THIS IS NECESSARY
+ * Nothing keys off it today — the ambient animations are written plain and
+ * always apply, and the CSS reduced block is gone — so this is a hook for the
+ * restore path rather than something load-bearing right now. It is kept
+ * because it is the seam: step 3 above adds one `html[data-motion='reduced']`
+ * rule and it immediately has something true to match on, with no sweep
+ * through the markup. It also means anything inspecting the DOM sees a
+ * definite state rather than an absent attribute.
  *
- * Without it the preference is only half-implemented, and the half that is
- * missing is the visible one. JavaScript consumers read `useReducedMotion`, but
- * the ~19 `motion-safe:` utilities in the markup are CSS, and CSS cannot see a
- * localStorage value. Left on the bare `prefers-reduced-motion` media query
- * they would keep answering to the OS — so somebody on a machine with the OS
- * flag set could choose Full, watch the parallax come back, and still have
- * every ambient animation stay switched off, with nothing to explain why.
- *
- * The attribute makes this module the single source of truth for both
- * languages. `tailwind.config.ts` defines `motion-safe:` and `motion-reduce:`
- * against it, and `index.css` keys `scroll-behavior` off it.
- *
- * Called once, from App. It is a hook rather than a subscription set up at
- * module load so it participates in React's lifecycle and stays correct across
- * a fast refresh.
+ * Called once, from App.
  */
 export function useMotionAttribute(): void {
-  const reduced = useReducedMotion()
   useEffect(() => {
-    document.documentElement.dataset.motion = reduced ? 'reduced' : 'full'
-  }, [reduced])
-}
-
-/** The raw preference, for the control that sets it. */
-export function useMotionPreference(): MotionPreference {
-  return useSyncExternalStore(
-    subscribe,
-    () => preference,
-    () => 'system' as MotionPreference,
-  )
-}
-
-export function setMotionPreference(next: MotionPreference): void {
-  preference = next
-  try {
-    // 'system' clears the key rather than storing the word, so a visitor who
-    // never chose is indistinguishable from one who chose the default — and a
-    // future change to what the default means reaches both.
-    if (next === 'system') localStorage.removeItem(STORAGE_KEYS.motion)
-    else localStorage.setItem(STORAGE_KEYS.motion, next)
-  } catch {
-    /* private mode — the choice still applies for this page */
-  }
-  emit()
-}
-
-/**
- * Whether the OS is currently asking for reduced motion.
- *
- * Only for the settings control, so it can label the 'system' option with what
- * following the system actually means right now. Nothing else should branch on
- * this — `useReducedMotion` is the answer.
- */
-export function osPrefersReducedMotion(): boolean {
-  if (typeof window === 'undefined') return false
-  return window.matchMedia(QUERY).matches
+    document.documentElement.dataset.motion = 'full'
+  }, [])
 }

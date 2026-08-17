@@ -309,7 +309,7 @@ function HowItWorks() {
             y={[-52, 52]}
             x={[16, -16]}
           >
-            <div aria-hidden="true" className="glow-primary size-80 motion-safe:animate-float" />
+            <div aria-hidden="true" className="glow-primary size-80 animate-float" />
           </ParallaxLayer>
 
           <h2 className="relative text-title text-balance">{t('home.howItWorks')}</h2>
@@ -617,20 +617,20 @@ function ClosingCta() {
               className="pointer-events-none absolute inset-0"
               y={[34, -34]}
             >
-              <div className="absolute -left-16 -top-24 size-72 rounded-full bg-white/10 blur-2xl motion-safe:animate-float" />
+              <div className="absolute -left-16 -top-24 size-72 rounded-full bg-white/10 blur-2xl animate-float" />
             </ParallaxLayer>
             <ParallaxLayer
               className="pointer-events-none absolute inset-0"
               y={[54, -54]}
               x={[-10, 10]}
             >
-              <div className="absolute -bottom-28 right-0 size-80 rounded-full bg-white/[0.07] blur-2xl motion-safe:animate-float-alt" />
+              <div className="absolute -bottom-28 right-0 size-80 rounded-full bg-white/[0.07] blur-2xl animate-float-alt" />
             </ParallaxLayer>
 
             {/* A single slow pass of light across the panel. */}
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/15 to-transparent motion-safe:animate-sheen"
+              className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/15 to-transparent animate-sheen"
             />
 
             <div className="relative flex flex-col items-start gap-5 sm:flex-row sm:items-center sm:justify-between">

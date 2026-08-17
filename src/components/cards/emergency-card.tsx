@@ -181,7 +181,7 @@ export function HeroEmergency({
               without becoming the thing you look away from. */}
           <span
             aria-hidden="true"
-            className="absolute size-4 rounded-full bg-danger/25 motion-safe:animate-pulse-ring"
+            className="absolute size-4 rounded-full bg-danger/25 animate-pulse-ring"
           />
           <Siren className="relative size-4 text-danger" aria-hidden="true" />
         </span>
@@ -206,7 +206,7 @@ export function HeroEmergency({
             // Delays are relative to mount, not page load — these tiles replace
             // a skeleton the moment the contacts resolve, and nobody should wait
             // on a flourish to see a call button.
-            className="min-w-0 motion-safe:animate-fade-up"
+            className="min-w-0 animate-fade-up"
             style={{ animationDelay: `${i * 0.07}s` }}
           >
             <CallButton

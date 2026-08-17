@@ -210,7 +210,7 @@ export default function HealthcarePage() {
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
                   active
                     ? 'border-primary bg-primary text-white'
-                    : 'border-line bg-surface text-ink hover:border-primary/40 hover:shadow-card-hover motion-safe:hover:-translate-y-0.5',
+                    : 'border-line bg-surface text-ink hover:border-primary/40 hover:shadow-card-hover hover:-translate-y-0.5',
                 )}
               >
                 <span className="text-[17px] leading-none" aria-hidden="true">

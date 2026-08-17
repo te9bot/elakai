@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom'
 import { Logo } from './logo'
-import { MotionPreferenceControl } from './motion-preference'
 import { useI18n } from '@/lib/i18n'
 import type { TranslationKey } from '@/lib/i18n'
 
@@ -43,8 +42,6 @@ export function Footer() {
                 ))}
               </ul>
             </nav>
-
-            <MotionPreferenceControl />
           </div>
         </div>
 

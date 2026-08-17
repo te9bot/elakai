@@ -44,7 +44,7 @@ export const TabsContent = forwardRef<
 >(({ className, ...props }, ref) => (
   <TabsPrimitive.Content
     ref={ref}
-    className={cn('focus-visible:outline-none motion-safe:animate-fade-in', className)}
+    className={cn('focus-visible:outline-none animate-fade-in', className)}
     {...props}
   />
 ))

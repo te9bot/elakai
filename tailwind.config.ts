@@ -149,53 +149,32 @@ export default {
       },
     },
   },
-  plugins: [
-    /**
-     * `motion-safe:` and `motion-reduce:` answer to ELAKAI's motion setting,
-     * not directly to the media query.
-     *
-     * Tailwind's stock variants compile to `prefers-reduced-motion` media
-     * queries, which would make them answer to the operating system alone. The
-     * site has a three-state preference — follow the system, force full, force
-     * reduced — and if these ~19 utilities ignored it, choosing Full on a
-     * machine whose OS flag is set would restore the parallax and leave every
-     * ambient animation off, with nothing on screen to explain the difference.
-     *
-     * `src/lib/motion.ts` resolves the preference (defaulting to the media
-     * query, so the accessible behaviour is what happens when nobody chooses)
-     * and publishes it as `<html data-motion>`. These two variants read that.
-     * One source of truth, in both languages.
-     *
-     * Nothing at any call site changed: `motion-safe:` still means "this is the
-     * moving version".
-     */
-    /*
-     * `motion-safe:` compiles to no condition at all, and the reduction is done
-     * in CSS instead. See the `[data-motion='reduced']` block in index.css.
-     *
-     * WHY NOT A SELECTOR HERE
-     *
-     * Two attempts were made to have the variant itself carry the condition —
-     * `:where(html[data-motion="full"]) &` and then a plain
-     * `html[data-motion="full"] &`. Both compiled to the bare utility with the
-     * prefix silently dropped, verified by grepping the built CSS rather than
-     * by reading the config, which looked correct throughout. Rather than keep
-     * guessing at the variant API, the condition moved somewhere its output can
-     * be seen.
-     *
-     * The inversion is also the sturdier design. "Play everything, then damp it
-     * all down when asked" needs one rule and cannot miss a utility; "gate each
-     * animation behind a selector" needs the gate to be right ~19 times and
-     * fails open — an ungated animation plays for somebody who asked for
-     * stillness, and nothing reports it.
-     *
-     * `motion-reduce:` keeps a selector that matches nothing. Valid, and
-     * unreachable by design rather than by omission: the reduced branch is now
-     * the CSS block, not a per-utility class.
-     */
-    ({ addVariant }: { addVariant: (name: string, value: string) => void }) => {
-      addVariant('motion-safe', '&')
-      addVariant('motion-reduce', 'html[data-motion="reduced"] &')
-    },
-  ],
+  /*
+   * No `motion-safe:` / `motion-reduce:` override any more, and no call site
+   * uses either prefix.
+   *
+   * A plugin here used to redefine both, so they would answer to ELAKAI's own
+   * `<html data-motion>` rather than to the operating system. It did not work.
+   * The built CSS showed the utilities still compiled to Tailwind's stock
+   *
+   *   @media (prefers-reduced-motion: no-preference) { .motion-safe\:… }
+   *
+   * so `addVariant` never displaced the core variant, and the ~19 ambient
+   * animations behind that prefix were switched off on any machine with the OS
+   * flag set — whatever the site's own setting said. That included the machine
+   * ELAKAI is developed on, which is why the hero glows and the pulse rings
+   * appeared to be missing while the JavaScript parallax kept running.
+   *
+   * It is fixed by deletion rather than by a third attempt at the variant API.
+   * ELAKAI now plays its full motion for everyone by explicit decision, so the
+   * prefix has nothing left to express: the utilities are written plain
+   * (`animate-float`, not `motion-safe:animate-float`) and always apply.
+   *
+   * To reintroduce a reduced mode, the sturdy shape is the inverted one — let
+   * every animation compile unconditionally, then damp them all in a single
+   * `html[data-motion='reduced']` rule in src/index.css. One rule cannot miss a
+   * utility; a per-utility gate has to be right ~19 times and fails open.
+   * src/lib/motion.ts has the rest of the decision.
+   */
+  plugins: [],
 } satisfies Config

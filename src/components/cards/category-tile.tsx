@@ -31,7 +31,7 @@ export function CategoryChip({
         'inline-flex items-center gap-2 rounded-pill border border-line bg-surface',
         'font-semibold text-ink shadow-card',
         'transition-[transform,box-shadow,border-color] duration-150 ease-out',
-        'hover:border-primary/40 hover:shadow-card-hover motion-safe:hover:-translate-y-0.5',
+        'hover:border-primary/40 hover:shadow-card-hover hover:-translate-y-0.5',
         'active:translate-y-0',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
         size === 'md' ? 'h-12 px-4 text-body-sm' : 'h-10 px-3.5 text-meta',
@@ -60,7 +60,7 @@ export function CategoryTile({ id, count }: { id: CategoryId; count?: number }) 
       className={cn(
         'group flex flex-col items-start gap-3 rounded-card border border-line bg-surface p-4',
         'shadow-card transition-[transform,box-shadow,border-color] duration-200 ease-out',
-        'hover:border-primary/40 hover:shadow-card-hover motion-safe:hover:-translate-y-0.5',
+        'hover:border-primary/40 hover:shadow-card-hover hover:-translate-y-0.5',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
       )}
     >

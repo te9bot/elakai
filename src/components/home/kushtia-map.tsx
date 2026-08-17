@@ -679,7 +679,7 @@ function KushtiaMapImpl({
                     cx={p.x}
                     cy={p.y}
                     r="26"
-                    className="fill-primary/20 motion-safe:animate-pulse-ring"
+                    className="fill-primary/20 animate-pulse-ring"
                   />
                 )}
                 <circle
