@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { Logo } from './logo'
+import { MotionPreferenceControl } from './motion-preference'
 import { useI18n } from '@/lib/i18n'
 import type { TranslationKey } from '@/lib/i18n'
 
@@ -26,21 +27,25 @@ export function Footer() {
             <p className="mt-2 text-meta font-semibold text-ink-subtle">{t('brand.tagline')}</p>
           </div>
 
-          <nav aria-label={t('footer.explore')}>
-            <h2 className="text-micro uppercase text-ink-subtle">{t('footer.explore')}</h2>
-            <ul className="mt-3 space-y-2">
-              {LINKS.map((l) => (
-                <li key={l.to}>
-                  <Link
-                    to={l.to}
-                    className="inline-block rounded py-1 text-body-sm font-medium text-ink-muted transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  >
-                    {t(l.key)}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </nav>
+          <div className="flex flex-col gap-8 sm:flex-row sm:gap-14">
+            <nav aria-label={t('footer.explore')}>
+              <h2 className="text-micro uppercase text-ink-subtle">{t('footer.explore')}</h2>
+              <ul className="mt-3 space-y-2">
+                {LINKS.map((l) => (
+                  <li key={l.to}>
+                    <Link
+                      to={l.to}
+                      className="inline-block rounded py-1 text-body-sm font-medium text-ink-muted transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      {t(l.key)}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+
+            <MotionPreferenceControl />
+          </div>
         </div>
 
         <p className="mt-8 text-meta text-ink-subtle">

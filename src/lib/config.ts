@@ -57,4 +57,9 @@ export const STORAGE_KEYS = {
   theme: 'elakai-theme',
   lang: 'elakai-lang',
   recentSearches: 'elakai-recent',
+  /**
+   * 'full' | 'reduced'. Absent means follow `prefers-reduced-motion`, which is
+   * the default and the accessible one. See src/lib/motion.ts.
+   */
+  motion: 'elakai-motion',
 } as const

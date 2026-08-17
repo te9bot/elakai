@@ -101,7 +101,69 @@
   html {
     -webkit-text-size-adjust: 100%;
     -webkit-tap-highlight-color: transparent;
+
+    /*
+       Applies to programmatic jumps — an anchor link, Home/End, react-router's
+       scroll restoration — and NOT to the mouse wheel, which the browser always
+       handles directly. So this makes a jump glide without putting a single
+       millisecond between the wheel and the page.
+
+       `scroll-behavior: auto` under reduced motion, below, because a jump that
+       animates is still motion the user did not ask for.
+    */
     scroll-behavior: smooth;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Reduced motion                                                      */
+  /* ------------------------------------------------------------------ */
+  /*
+     Keyed on `data-motion`, not on the media query directly.
+
+     `src/lib/motion.ts` resolves the three-state preference — follow the
+     system, force full, force reduced — and writes the answer here. Defaulting
+     to the media query means someone who never chooses gets the accessible
+     behaviour; keying off the attribute means someone who *did* choose is
+     actually obeyed, in CSS as well as in JavaScript.
+
+     This is the whole of the CSS half. Rather than gating each of the ~19
+     `motion-safe:` utilities behind a selector — nineteen chances to miss one,
+     failing open — every animation compiles unconditionally and this damps all
+     of them at once. It cannot miss one.
+
+     `0.001ms` rather than `none`: an animation that is cancelled outright never
+     fires `animationend`, and anything waiting on that event would hang.
+     Finishing it immediately reaches the same visual result with none of that
+     risk. The standard reduced-motion reset, for the standard reason.
+
+     Note what is NOT damped: `opacity` transitions are left alone deliberately.
+     A control that fades on hover is feedback, not motion — removing it makes
+     the interface feel broken rather than calm, and nothing about a cross-fade
+     causes vestibular trouble. */
+  html[data-motion='reduced'] {
+    scroll-behavior: auto;
+  }
+
+  html[data-motion='reduced'] *,
+  html[data-motion='reduced'] *::before,
+  html[data-motion='reduced'] *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+    transition-delay: 0ms !important;
+  }
+
+  /* Spinners are the exception, and they matter.
+
+     A "Signing in…" spinner damped to nothing is a still icon next to a
+     disabled button, which reads as a frozen page at exactly the moment
+     somebody is waiting to find out whether their password worked. This is
+     feedback about system state, not decoration, so it keeps turning — slower,
+     because it no longer needs to catch the eye. */
+  html[data-motion='reduced'] .animate-spin {
+    animation-duration: 1.4s !important;
+    animation-iteration-count: infinite !important;
   }
 
   body {
@@ -181,11 +243,41 @@
     -webkit-backdrop-filter: blur(14px) saturate(1.6);
   }
 
+  /*
+     Cheaper glass on small screens.
+
+     `backdrop-filter` makes the compositor copy the region behind the element
+     and blur it, and the cost of that blur scales with the radius — it is
+     fill-rate work on the GPU, which is exactly the budget a mid-range Android
+     has least of. Small screens are also the only place two of these are on
+     screen at once: the sticky header and the fixed bottom nav, both full
+     width, both over the same moving backdrop.
+
+     14px to 10px and 1.6 to 1.35 is not a visible difference on a 6-inch
+     display at arm's length — the bar still reads as frosted, and the content
+     passing under it is still clearly under it. It is a material difference to
+     the phone drawing it.
+
+     Desktop keeps the full recipe: the effect is more visible on a large
+     display, and the hardware is not the constraint there. */
+  @media (max-width: 1023px) {
+    .glass {
+      backdrop-filter: blur(10px) saturate(1.35);
+      -webkit-backdrop-filter: blur(10px) saturate(1.35);
+    }
+  }
+
   @supports not (backdrop-filter: blur(1px)) {
     .glass {
       background-color: hsl(var(--surface) / 0.98);
     }
   }
+
+  /*
+     No blur at all under reduced motion is deliberately NOT done here.
+     `prefers-reduced-motion` is about movement, not about visual effects, and
+     someone who asked for less motion did not ask for a different-looking site.
+     The blur does not move. */
 
   /* ------------------------------------------------------------------ */
   /* Action glass                                                        */

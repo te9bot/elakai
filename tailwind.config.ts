@@ -151,25 +151,51 @@ export default {
   },
   plugins: [
     /**
-     * `motion-safe:` and `motion-reduce:` are redefined, not removed.
+     * `motion-safe:` and `motion-reduce:` answer to ELAKAI's motion setting,
+     * not directly to the media query.
      *
-     * ELAKAI plays its motion whatever the operating system's accessibility
-     * panel says — the decision, its cost, and how to undo it are documented in
-     * `src/lib/motion.ts`. Tailwind's stock variants compile to
-     * `prefers-reduced-motion` media queries, so leaving them alone would have
-     * silently switched off the ~19 `motion-safe:` classes across the markup on
-     * exactly the machines the rest of the change is meant to serve.
+     * Tailwind's stock variants compile to `prefers-reduced-motion` media
+     * queries, which would make them answer to the operating system alone. The
+     * site has a three-state preference — follow the system, force full, force
+     * reduced — and if these ~19 utilities ignored it, choosing Full on a
+     * machine whose OS flag is set would restore the parallax and leave every
+     * ambient animation off, with nothing on screen to explain the difference.
      *
-     * Redefining them here keeps every one of those classes readable and
-     * correct at its call site: `motion-safe:` still means "this is the moving
-     * version", it simply always applies now. Restoring the media queries is
-     * deleting this plugin.
+     * `src/lib/motion.ts` resolves the preference (defaulting to the media
+     * query, so the accessible behaviour is what happens when nobody chooses)
+     * and publishes it as `<html data-motion>`. These two variants read that.
+     * One source of truth, in both languages.
+     *
+     * Nothing at any call site changed: `motion-safe:` still means "this is the
+     * moving version".
+     */
+    /*
+     * `motion-safe:` compiles to no condition at all, and the reduction is done
+     * in CSS instead. See the `[data-motion='reduced']` block in index.css.
+     *
+     * WHY NOT A SELECTOR HERE
+     *
+     * Two attempts were made to have the variant itself carry the condition —
+     * `:where(html[data-motion="full"]) &` and then a plain
+     * `html[data-motion="full"] &`. Both compiled to the bare utility with the
+     * prefix silently dropped, verified by grepping the built CSS rather than
+     * by reading the config, which looked correct throughout. Rather than keep
+     * guessing at the variant API, the condition moved somewhere its output can
+     * be seen.
+     *
+     * The inversion is also the sturdier design. "Play everything, then damp it
+     * all down when asked" needs one rule and cannot miss a utility; "gate each
+     * animation behind a selector" needs the gate to be right ~19 times and
+     * fails open — an ungated animation plays for somebody who asked for
+     * stillness, and nothing reports it.
+     *
+     * `motion-reduce:` keeps a selector that matches nothing. Valid, and
+     * unreachable by design rather than by omission: the reduced branch is now
+     * the CSS block, not a per-utility class.
      */
     ({ addVariant }: { addVariant: (name: string, value: string) => void }) => {
       addVariant('motion-safe', '&')
-      // Valid, and matches nothing: the reduced branch is now unreachable by
-      // design rather than by omission.
-      addVariant('motion-reduce', '&:not(*)')
+      addVariant('motion-reduce', 'html[data-motion="reduced"] &')
     },
   ],
 } satisfies Config

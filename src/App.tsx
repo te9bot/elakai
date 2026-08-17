@@ -6,6 +6,7 @@ import { domAnimation, LazyMotion, MotionConfig } from 'framer-motion'
 import { AppShell } from '@/components/layout/app-shell'
 import { AccountProvider } from '@/lib/auth'
 import { LanguageProvider } from '@/lib/i18n'
+import { useMotionAttribute } from '@/lib/motion'
 import { ThemeProvider } from '@/lib/theme'
 import { RequireAdmin } from '@/components/admin/require-admin'
 import { RequireAccount } from '@/components/account/require-account'
@@ -216,18 +217,24 @@ const router = createBrowserRouter(
 )
 
 export function App() {
+  // Publishes the resolved motion preference to `<html data-motion>`, which is
+  // what the `motion-safe:` utilities and `scroll-behavior` key off. Without it
+  // the setting would only reach the JavaScript half of the site.
+  useMotionAttribute()
+
   return (
     <ThemeProvider>
       <LanguageProvider>
         <QueryClientProvider client={queryClient}>
           {/* domAnimation only — drops roughly 25kb versus the full feature set. */}
           <LazyMotion features={domAnimation} strict>
-            {/* Framer's own reduced-motion handling, pinned to match the rest of
-                the site. `never` is already its default, so this is a statement
-                rather than a fix: it means a future framer-motion that changes
-                that default cannot quietly reintroduce a half-reduced page.
-                See src/lib/motion.ts for the decision this belongs to. */}
-            <MotionConfig reducedMotion="never">
+            {/* Framer's own reduced-motion handling, matching the rest of the
+                site. This was pinned to `never` while ELAKAI played its motion
+                for everyone; the site owner has since asked for the OS
+                preference to be respected, so framer follows it too and the
+                three places that decide this — here, src/lib/motion.ts and the
+                Tailwind variants — agree again. */}
+            <MotionConfig reducedMotion="user">
               {/* Wraps the router so the guards, the auth screens, the
                   contributor dashboard and the admin panel all share one
                   session; it resolves to 'unconfigured' and costs nothing when

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { m, useReducedMotion as useOsReducedMotion } from 'framer-motion'
+import { m } from 'framer-motion'
+
+import { useReducedMotion } from '@/lib/motion'
 
 import {
   LOGO_ASPECT,
@@ -37,17 +39,17 @@ import { REVEAL_EASE } from '@/components/reveal'
  *
  * REDUCED MOTION
  *
- * This component calls framer-motion's `useReducedMotion` directly, and it is
- * the only thing in the codebase that does. Everywhere else imports
- * `@/lib/motion`, which returns false unconditionally — a deliberate decision by
- * the site owner, documented at length in that file, that the site's entrance
- * choreography plays for everyone.
+ * Through `@/lib/motion`, the site's single answer, like everything else.
  *
- * The exception is narrow and it is the brief's: §11 asks for
- * `prefers-reduced-motion` to be respected here specifically. It is also the
- * easiest place in the product to honour it, because there is nothing to lose —
- * with the motion removed this is a brief brand hold rather than a page that
- * stops working. Nothing about the home page intro changes.
+ * This component briefly read framer's hook directly instead, because at the
+ * time that seam returned a hard `false` for everyone and §11 asked for the
+ * preference to be respected here specifically. That exception is gone: the
+ * seam now reports the OS preference, so there is no longer anything to make an
+ * exception to, and no second opinion in the tree.
+ *
+ * What reduced motion costs here is nothing: with the travel removed this is a
+ * brief brand hold rather than a screen that stops working, and the navigation
+ * it guards fires from a timer either way.
  * ========================================================================== */
 
 /** Travel of the unit plane at full depth, in px, before assembly. */
@@ -96,7 +98,7 @@ export function SignInTransition({
   onDone: () => void
   label?: string
 }) {
-  const reduced = useOsReducedMotion() ?? false
+  const reduced = useReducedMotion()
   const [phase, setPhase] = useState<Phase>('apart')
   const [leaving, setLeaving] = useState(false)
 

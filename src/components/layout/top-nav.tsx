@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { Languages, Moon, Plus, Search, Sun, UserRound } from 'lucide-react'
 import { Logo } from './logo'
@@ -6,6 +6,7 @@ import { SearchBar } from '@/components/search/search-bar'
 import { useContribute } from '@/components/account/contribute-gate'
 import { useAccount } from '@/lib/auth'
 import { useI18n } from '@/lib/i18n'
+import { onScrollFrame } from '@/lib/scroll'
 import { useTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 
@@ -30,12 +31,31 @@ export function TopNav() {
   const location = useLocation()
   const [scrolled, setScrolled] = useState(false)
 
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8)
-    onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
+  /*
+   * The header frosts once, at 8px, and then never changes again for the rest
+   * of the page — but the naive version of this asks React about it on every
+   * scroll event for the whole session.
+   *
+   * `setScrolled(window.scrollY > 8)` looks free because React bails out when
+   * the value is unchanged. It is not free: React still re-enters this
+   * component to discover that, and this component renders the lockup, five
+   * NavLinks, the search field and four controls. Comparing against a ref first
+   * means the state setter is called twice in a page's life — once crossing
+   * down, once crossing back — instead of on every wheel tick.
+   */
+  const wasScrolled = useRef(false)
+
+  useEffect(
+    () =>
+      // Through the shared loop rather than its own listener — see lib/scroll.ts.
+      onScrollFrame((scrollY) => {
+        const next = scrollY > 8
+        if (next === wasScrolled.current) return
+        wasScrolled.current = next
+        setScrolled(next)
+      }),
+    [],
+  )
 
   const onSearchPage = location.pathname === '/search'
 

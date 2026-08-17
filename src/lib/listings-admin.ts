@@ -1,3 +1,4 @@
+import { downscaleImage } from './image-resize'
 import { requireSupabase } from './supabase'
 import {
   fromServiceList,
@@ -141,18 +142,31 @@ export async function uploadListingImage(file: File): Promise<string> {
   if (invalid) throw new Error(invalid)
 
   const db = requireSupabase()
-  const ext = EXT_BY_TYPE[file.type] ?? 'jpg'
+
+  // Shrunk before it is sent, for the reason set out in lib/image-resize.ts:
+  // this bucket accepts 50MB and the largest an image is ever displayed is a
+  // few hundred pixels, so without this the admin panel is the easiest way to
+  // put a twelve-megapixel photograph on the public site. Never fails the
+  // upload — an image that cannot be resized goes up as it is.
+  const { file: upload, resized, originalBytes } = await downscaleImage(file)
+  if (resized) {
+    console.info(
+      `[elakai] image resized before upload: ${formatBytes(originalBytes)} -> ${formatBytes(upload.size)}`,
+    )
+  }
+
+  const ext = EXT_BY_TYPE[upload.type] ?? 'jpg'
   const unique =
     typeof crypto !== 'undefined' && 'randomUUID' in crypto
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 
   const stamp = new Date().toISOString().slice(0, 10)
-  const label = safeName(file.name)
+  const label = safeName(upload.name)
   const path = `listings/${stamp}-${unique}${label ? `-${label}` : ''}.${ext}`
 
-  const { error } = await db.storage.from(IMAGE_BUCKET).upload(path, file, {
-    contentType: file.type,
+  const { error } = await db.storage.from(IMAGE_BUCKET).upload(path, upload, {
+    contentType: upload.type,
     upsert: false,
     cacheControl: '3600',
   })

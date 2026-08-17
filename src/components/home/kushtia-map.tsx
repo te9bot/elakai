@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef } from 'react'
 import { AREA_MAP } from '@/data/categories'
 import type { AreaId } from '@/data/types'
 import { useI18n } from '@/lib/i18n'
 import { useReducedMotion } from '@/lib/motion'
+import { currentScrollY, onScrollFrame } from '@/lib/scroll'
 import { cn } from '@/lib/utils'
 
 /* ==========================================================================
@@ -47,6 +48,45 @@ import { cn } from '@/lib/utils'
  *
  * Whether any of it runs is `lib/motion.ts`'s decision, not this file's — see
  * the note in the effect below.
+ *
+ * WHY THE MOTION IS WRITTEN TO THE DOM INSTEAD OF THROUGH REACT
+ *
+ * This component was the site's scroll stutter, and it is worth writing down
+ * exactly how, because the previous version had a comment explaining why it was
+ * fine and the comment was wrong.
+ *
+ * It held the scroll offset and the pointer tilt in React state and set them
+ * from the event handlers. The reasoning recorded here was that "the tree below
+ * is a fixed, static set of paths ... React's work is diffing seven style
+ * strings". It is not seven style strings. A re-render walks the entire SVG
+ * below: six markers of four elements each, thirty scattered blocks, the river,
+ * two passes over the trunk roads, the dashed routes, the gradients and the
+ * labels — on the order of a hundred elements, rebuilt and diffed on every
+ * scroll event. And because this is mounted in the app shell, fixed and
+ * full-viewport, that happened behind every page on the site, not just the home
+ * page it was designed for.
+ *
+ * Three smaller faults compounded it:
+ *
+ *   * `layer()` returned a fresh object each render, so all seven `<g>` nodes
+ *     had their style attribute rewritten every time regardless of whether the
+ *     value had changed.
+ *   * each layer carried `transition: transform 380ms`. A transition restarted
+ *     on every scroll event is seven interpolations the compositor is always
+ *     part-way through, fighting the scroll rather than smoothing it.
+ *   * the pointer handler called `getBoundingClientRect()` on every `mousemove`
+ *     with no throttle — a forced synchronous layout, on the element that
+ *     covers the viewport.
+ *
+ * So the layout is unchanged and the choreography is unchanged, and both of
+ * those are now driven by writing `transform` straight onto seven cached DOM
+ * nodes inside one requestAnimationFrame loop. React renders this component
+ * once. Scrolling causes no render, no diff and no style-attribute churn, and
+ * the smoothing that the CSS transition used to provide is a lerp inside the
+ * same loop — which produces the same eased settle without ever restarting.
+ *
+ * The loop stops itself when every layer is within half a pixel of its target
+ * and starts again on the next input, so a page sitting still costs nothing.
  * ========================================================================== */
 
 /* ------------------------------------------------------------------ */
@@ -140,101 +180,206 @@ const DEPTH = {
   markers: 14,
 } as const
 
-export function KushtiaMap({ className }: { className?: string }) {
+/** The seven layers the loop drives, in the order their refs are stored. */
+const LAYER_DEPTHS = [
+  DEPTH.grid,
+  DEPTH.blocks,
+  DEPTH.river,
+  DEPTH.roads,
+  DEPTH.routes,
+  DEPTH.glow,
+  DEPTH.markers,
+] as const
+
+/**
+ * How quickly a layer catches up with its target, per frame at 60fps.
+ *
+ * This replaces the `transition: transform 380ms cubic-bezier(0.22, 1, 0.36, 1)`
+ * the layers used to carry. A lerp is not the same curve, but it is the same
+ * *feel* — a fast start that eases into place — and unlike a CSS transition it
+ * has no notion of restarting, so a continuous stream of scroll events produces
+ * one continuous settle rather than a new 380ms animation every event.
+ */
+const CATCH_UP = 0.12
+
+/** Below half a pixel of remaining travel, nothing more is visible. */
+const SETTLED = 0.5
+
+function KushtiaMapImpl({ className }: { className?: string }) {
   const { L } = useI18n()
   const reduced = useReducedMotion()
   const ref = useRef<HTMLDivElement>(null)
-  const [tilt, setTilt] = useState({ x: 0, y: 0 })
-
-  /*
-   * Scroll position, as a plain number.
-   *
-   * framer's `useScroll` was tried here and its MotionValue does not reach an
-   * SVG `<g>`: under `LazyMotion` the transform is simply never written, and
-   * the layers sit at `transform: none` however far the page scrolls. Rather
-   * than work around that, this keeps the scroll offset in state and writes an
-   * ordinary inline transform, which is what the SVG honours.
-   *
-   * The cost is a re-render per frame while scrolling. It is acceptable because
-   * the tree below is a fixed, static set of paths — no data, no children that
-   * can change — so React's work is diffing seven style strings.
-   */
-  const [scroll, setScroll] = useState(0)
+  const layerRefs = useRef<(SVGGElement | null)[]>([])
 
   useEffect(() => {
     // Through the project's seam, not `matchMedia` directly.
     //
-    // `lib/motion.ts` is the site's single answer on reduced motion — a
-    // deliberate owner decision, currently "play for everyone" — and it exists
-    // precisely so no component holds a second opinion. Querying the media
-    // feature here did exactly that: on a machine with the OS setting enabled
-    // the hero kept animating while this backdrop sat frozen behind it, which
-    // is neither the accessible behaviour nor the intended one. Flipping that
-    // one function turns this off along with everything else.
+    // `lib/motion.ts` is the site's single answer on reduced motion, and it
+    // exists precisely so no component holds a second opinion. Querying the
+    // media feature here did exactly that: on a machine with the OS setting
+    // enabled the hero kept animating while this backdrop sat frozen behind it,
+    // which is neither the accessible behaviour nor the intended one. Flipping
+    // that one function turns this off along with everything else.
     if (reduced) return
+
+    const nodes = layerRefs.current
+    if (!nodes.length) return
 
     // Not a motion preference but a capability check, so it stays local: a
     // coarse pointer has no hover position to track, and the listener would
     // cost work and never move anything. Scroll still applies on touch.
     const fine = window.matchMedia('(pointer: fine)').matches
 
+    // Where each layer is, and where it is heading. Plain arrays rather than
+    // state: nothing here should ever cause React to do anything.
+    const current = { x: 0, y: 0 }
+    const target = { x: 0, y: 0 }
+
     /*
-     * State is set straight from the handler rather than deferred to an
-     * animation frame.
+     * The element's box, measured once and on resize rather than per event.
      *
-     * The rAF wrapper that used to sit here coalesced bursts, which is the
-     * usual reason to have one — but it also meant a single `cancelAnimationFrame`
-     * shared between the pointer and scroll handlers could drop the other's
-     * pending update, and it made the whole effect depend on frames being
-     * delivered. React 18 batches these updates anyway, and both handlers do
-     * nothing but arithmetic, so the coalescing was buying very little for the
-     * fragility it added.
+     * Reading `getBoundingClientRect()` inside a `mousemove` handler is a
+     * forced synchronous layout — the browser must flush pending style and
+     * layout work before it can answer — and on an element that covers the
+     * whole viewport that is the most expensive question you can ask, at the
+     * highest frequency you can ask it. This element is `fixed inset-0`, so the
+     * answer only changes when the viewport does.
      */
-    function onMove(event: MouseEvent) {
-      const box = ref.current?.getBoundingClientRect()
-      if (!box) return
-      // -1..1 from the centre, so the shift is symmetric.
-      setTilt({
-        x: ((event.clientX - box.left) / box.width - 0.5) * 2,
-        y: ((event.clientY - box.top) / box.height - 0.5) * 2,
-      })
+    let box = ref.current?.getBoundingClientRect() ?? null
+    const remeasure = () => {
+      box = ref.current?.getBoundingClientRect() ?? null
     }
+
+    let frame = 0
+    let running = false
+
+    function draw() {
+      running = true
+      frame = requestAnimationFrame(draw)
+
+      const dx = target.x - current.x
+      const dy = target.y - current.y
+
+      // Nothing left to move. Stop the loop entirely rather than burning a
+      // frame forever on a page that is sitting still — the next input calls
+      // `wake()` and it picks up where it left off.
+      if (Math.abs(dx) < SETTLED / 100 && Math.abs(dy) < SETTLED / 100) {
+        cancelAnimationFrame(frame)
+        running = false
+        for (const node of nodes) node?.style.removeProperty('will-change')
+        return
+      }
+
+      current.x += dx * CATCH_UP
+      current.y += dy * CATCH_UP
+
+      /*
+       * Seven writes, no reads.
+       *
+       * Writing transforms without reading layout in between is what keeps this
+       * out of the layout-thrash pattern: the browser batches all seven into
+       * one style recalculation, and because `transform` on an SVG group is
+       * composited it never reaches layout at all.
+       */
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i]
+        if (!node) continue
+        const depth = LAYER_DEPTHS[i]
+        node.style.transform = `translate3d(${current.x * depth}px, ${current.y * depth}px, 0)`
+      }
+    }
+
+    function wake() {
+      if (running) return
+      // Hinted only while something is actually moving. A permanent
+      // `will-change: transform` on seven full-viewport groups asks the
+      // compositor to hold seven layers for the life of the page, which costs
+      // memory on exactly the low-end phones this is meant to feel smooth on.
+      for (const node of nodes) node?.style.setProperty('will-change', 'transform')
+      frame = requestAnimationFrame(draw)
+    }
+
+    /*
+     * The two inputs are tracked separately and combined into the target,
+     * because they arrive from different events and each has to be able to
+     * change without discarding the other. The combination is exactly the one
+     * the old inline style computed: horizontal is pointer only, vertical is
+     * pointer tilt minus the clamped scroll contribution.
+     */
+    const pointer = { x: 0, y: 0 }
 
     /*
      * Clamped, so the separation accrues over the first screen or so and then
      * holds. Without it an eight-screen page would slide the labels a hundred
      * pixels clear of the markers they belong to.
      */
-    function onScroll() {
-      setScroll(Math.min(window.scrollY, SCROLL_SPAN))
+    let scrollShare = (Math.min(currentScrollY(), SCROLL_SPAN) / SCROLL_SPAN) * 7
+
+    function retarget() {
+      target.x = pointer.x
+      target.y = pointer.y - scrollShare
+      wake()
+    }
+
+    function onMove(event: MouseEvent) {
+      if (!box) return
+      // -1..1 from the centre, so the shift is symmetric.
+      pointer.x = ((event.clientX - box.left) / box.width - 0.5) * 2
+      pointer.y = ((event.clientY - box.top) / box.height - 0.5) * 2
+      retarget()
+    }
+
+    // Through the shared loop rather than its own listener — see lib/scroll.ts.
+    // The value arrives already batched to one frame, so this never recomputes
+    // more often than it can paint.
+    const unsubscribe = onScrollFrame((scrollY) => {
+      scrollShare = (Math.min(scrollY, SCROLL_SPAN) / SCROLL_SPAN) * 7
+      retarget()
+    })
+
+    /*
+     * A hidden tab delivers no frames. Stopping on the way out means a
+     * backgrounded ELAKAI is not holding seven promoted compositor layers, and
+     * re-basing on the way in means it does not snap when it comes back.
+     */
+    function onVisibility() {
+      if (document.visibilityState === 'visible') {
+        remeasure()
+        retarget()
+      } else if (running) {
+        cancelAnimationFrame(frame)
+        running = false
+      }
     }
 
     if (fine) window.addEventListener('mousemove', onMove, { passive: true })
-    window.addEventListener('scroll', onScroll, { passive: true })
-    onScroll()
+    window.addEventListener('resize', remeasure, { passive: true })
+    document.addEventListener('visibilitychange', onVisibility)
 
     return () => {
+      unsubscribe()
       if (fine) window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('scroll', onScroll)
-
+      window.removeEventListener('resize', remeasure)
+      document.removeEventListener('visibilitychange', onVisibility)
+      if (running) cancelAnimationFrame(frame)
+      // Never leave the hint behind on an unmount mid-animation.
+      for (const node of nodes) node?.style.removeProperty('will-change')
     }
   }, [reduced])
 
   /**
-   * A layer's pointer offset, combined with its scroll MotionValue by the
-   * caller. Both scale by the same depth, which is what makes the two read as
-   * one space rather than as two separate effects.
+   * Assigns each animated group its slot in `layerRefs`.
    *
-   * Transform only — no `top`, no `background-position` — so the backdrop stays
-   * on the compositor and never triggers layout while the page scrolls.
+   * Index-based rather than named, so the loop above can walk `LAYER_DEPTHS`
+   * and the refs in lockstep without a lookup per frame.
    */
-  const layer = (depth: number) => ({
-    transform: `translate3d(${tilt.x * depth}px, ${
-      tilt.y * depth - (scroll / SCROLL_SPAN) * depth * 7
-    }px, 0)`,
-    transition: 'transform 380ms cubic-bezier(0.22, 1, 0.36, 1)',
-    willChange: 'transform',
-  })
+  const setLayer = useMemo(
+    () =>
+      LAYER_DEPTHS.map((_, i) => (node: SVGGElement | null) => {
+        layerRefs.current[i] = node
+      }),
+    [],
+  )
 
   return (
     <div ref={ref} aria-hidden="true" className={cn('pointer-events-none', className)}>
@@ -306,7 +451,7 @@ export function KushtiaMap({ className }: { className?: string }) {
         {/* 2 — geographic grid. The furthest layer, so it barely moves; it is
             what the closer layers are seen to move against. Oversized and
             offset so its own edge cannot travel into view. */}
-        <g style={layer(DEPTH.grid)}>
+        <g ref={setLayer[0]}>
           <rect
             x={-40}
             y={-40}
@@ -318,7 +463,7 @@ export function KushtiaMap({ className }: { className?: string }) {
         </g>
 
         {/* 3 — urban blocks: density around the three larger towns */}
-        <g style={layer(DEPTH.blocks)} className="fill-[#dbe3ee] dark:fill-[#16233a]">
+        <g ref={setLayer[1]} className="fill-[#dbe3ee] dark:fill-[#16233a]">
           {PLACES.flatMap((p, i) =>
             // A deterministic scatter — same seed, same blocks, every render.
             Array.from({ length: 5 }, (_, k) => {
@@ -341,7 +486,7 @@ export function KushtiaMap({ className }: { className?: string }) {
         </g>
 
         {/* 4 — river: the Padma along the north-west, the Gorai to the south-east */}
-        <g style={layer(DEPTH.river)} fill="none" strokeLinecap="round">
+        <g ref={setLayer[2]} fill="none" strokeLinecap="round">
           <path
             d="M -40 150 C 180 96, 330 128, 470 212 S 690 300, 860 268 S 1120 214, 1260 246"
             strokeWidth="26"
@@ -363,7 +508,7 @@ export function KushtiaMap({ className }: { className?: string }) {
         </g>
 
         {/* 5 — trunk roads */}
-        <g style={layer(DEPTH.roads)} fill="none" strokeLinecap="round">
+        <g ref={setLayer[3]} fill="none" strokeLinecap="round">
           {ROADS.map((d, i) => (
             <path
               key={i}
@@ -383,7 +528,7 @@ export function KushtiaMap({ className }: { className?: string }) {
         </g>
 
         {/* 6 — secondary routes */}
-        <g style={layer(DEPTH.routes)} fill="none" strokeLinecap="round">
+        <g ref={setLayer[4]} fill="none" strokeLinecap="round">
           {ROUTES.map((d, i) => (
             <path
               key={i}
@@ -397,7 +542,7 @@ export function KushtiaMap({ className }: { className?: string }) {
         </g>
 
         {/* 7 — atmospheric glow */}
-        <g style={layer(DEPTH.glow)}>
+        <g ref={setLayer[5]}>
           <circle cx={sadar.x} cy={sadar.y} r="300" fill="url(#km-glow-a)" />
           <circle cx={at('bheramara').x} cy={at('bheramara').y} r="240" fill="url(#km-glow-b)" />
         </g>
@@ -405,7 +550,7 @@ export function KushtiaMap({ className }: { className?: string }) {
         {/* 8 — markers and labels.
             Held at 0.8 so place names read as part of the backdrop rather than
             competing with the hero copy sitting over them. */}
-        <g style={layer(DEPTH.markers)} opacity="0.8">
+        <g ref={setLayer[6]} opacity="0.8">
           {PLACES.map((p) => {
             const isSadar = p.id === 'kushtia-sadar'
             return (
@@ -458,3 +603,14 @@ export function KushtiaMap({ className }: { className?: string }) {
     </div>
   )
 }
+
+/**
+ * Memoised, because it lives in the app shell.
+ *
+ * `AppShell` re-renders on every navigation, and without this the whole SVG
+ * would be rebuilt each time somebody moved between Healthcare and Rentals —
+ * for a backdrop whose only prop is a constant class string and whose content
+ * does not depend on the route at all. The one thing that legitimately changes
+ * it is the language, and `useI18n` inside still drives that.
+ */
+export const KushtiaMap = memo(KushtiaMapImpl)

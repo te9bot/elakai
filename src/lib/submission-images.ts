@@ -1,3 +1,4 @@
+import { downscaleImage } from './image-resize'
 import { requireSupabase } from './supabase'
 
 /* ==========================================================================
@@ -159,12 +160,33 @@ export async function uploadSubmissionImage(file: File): Promise<UploadedImage> 
   const userId = auth.user?.id
   if (!userId) throw new Error('You need to be signed in to upload an image.')
 
-  const ext = EXT_BY_TYPE[file.type] ?? 'jpg'
-  const label = safeName(file.name)
+  /*
+   * Shrunk before it is sent.
+   *
+   * A phone photograph is three to six megabytes and twelve megapixels; the
+   * largest ELAKAI ever displays it is a few hundred pixels tall. Without this
+   * every visitor to a page with six listings downloads and decodes tens of
+   * megabytes of pixels they will never see — on a mobile connection, which is
+   * this audience. Doing it here rather than with a resizing service is a
+   * deliberate choice explained in lib/image-resize.ts; the short version is
+   * that Supabase's transform endpoint is a paid feature and a broken image is
+   * worse than a large one.
+   *
+   * Never fails the upload: a file that cannot be resized is uploaded as it is.
+   */
+  const { file: upload, resized, originalBytes } = await downscaleImage(file)
+  if (resized) {
+    console.info(
+      `[elakai] image resized before upload: ${formatBytes(originalBytes)} -> ${formatBytes(upload.size)}`,
+    )
+  }
+
+  const ext = EXT_BY_TYPE[upload.type] ?? 'jpg'
+  const label = safeName(upload.name)
   const path = `${userId}/${uniqueId()}${label ? `-${label}` : ''}.${ext}`
 
-  const { error } = await db.storage.from(SUBMISSION_BUCKET).upload(path, file, {
-    contentType: file.type,
+  const { error } = await db.storage.from(SUBMISSION_BUCKET).upload(path, upload, {
+    contentType: upload.type,
     upsert: false,
     cacheControl: '3600',
   })
