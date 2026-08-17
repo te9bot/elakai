@@ -114,11 +114,22 @@ as $$
 begin
   -- `role` and `points` are deliberately absent from this list. They take their
   -- column defaults ('user', 0), so the signup payload cannot influence either.
+  --
+  -- The name is looked for under four keys because four sources write it under
+  -- different ones: this app's own signup form sends `full_name`, Google sends
+  -- `full_name` and `name`, Facebook sends `name`, and a user created by hand in
+  -- the dashboard has none of them. The first non-empty one wins; a profile with
+  -- no name is valid and the dashboard falls back to the email address.
   insert into public.profiles (id, email, full_name)
   values (
     new.id,
     new.email,
-    nullif(trim(coalesce(new.raw_user_meta_data ->> 'full_name', '')), '')
+    coalesce(
+      nullif(trim(coalesce(new.raw_user_meta_data ->> 'full_name', '')), ''),
+      nullif(trim(coalesce(new.raw_user_meta_data ->> 'name', '')), ''),
+      nullif(trim(coalesce(new.raw_user_meta_data ->> 'display_name', '')), ''),
+      nullif(trim(coalesce(new.raw_user_meta_data ->> 'preferred_username', '')), '')
+    )
   )
   on conflict (id) do nothing;
   return new;

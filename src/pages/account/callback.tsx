@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { AlertTriangle } from 'lucide-react'
 
 import { AuthShell, FormNotice } from '@/components/account/auth-shell'
@@ -48,10 +48,20 @@ const GIVE_UP_MS = 8000
 export default function AccountCallbackPage() {
   const { status } = useAccount()
   const navigate = useNavigate()
-  const location = useLocation()
 
   const [timedOut, setTimedOut] = useState(false)
   const [entering, setEntering] = useState(false)
+
+  /*
+   * Captured on the very first render, not when the transition finishes.
+   *
+   * Both ways in rewrite this URL as they complete: the email link's token
+   * lives in the fragment and is stripped, and the OAuth PKCE flow arrives with
+   * `?code=` and has that removed once it is exchanged. Reading `next` a second
+   * later means reading whatever survived that rewrite, which is not something
+   * this app controls. Reading it once, immediately, does.
+   */
+  const [urlIntent] = useState(() => intentFromSearch(window.location.search))
 
   /*
    * Supabase reports a failed link — expired, already used, tampered with — in
@@ -106,9 +116,10 @@ export default function AccountCallbackPage() {
       <SignInTransition
         label="Finishing up"
         onDone={() => {
-          const fromUrl = intentFromSearch(location.search)
+          // The stored copy is always taken, even when the URL carried one, so
+          // a spent intent never lingers to hijack a later sign-in.
           const stored = takeIntent()
-          const intent = fromUrl ?? stored
+          const intent = urlIntent ?? stored
           navigate(intent ? intentToPath(intent) : '/contribute', { replace: true })
         }}
       />

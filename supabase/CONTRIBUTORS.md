@@ -139,6 +139,68 @@ inviting anyone.
 
 ---
 
+## STEP 3b — Google and Facebook sign-in (optional)
+
+Neither is enabled today, verified against `/auth/v1/settings`:
+
+```json
+"external": { "email": true, "google": false, "facebook": false, ... }
+```
+
+**The app already handles both states.** `src/lib/auth-providers.ts` reads that
+same endpoint on load and renders a button only for a provider that is actually
+configured. So there is nothing to deploy here: enable a provider below and the
+button appears on the next page load; disable it and the button goes away. There
+is no state in which ELAKAI shows a "Continue with Google" that leads to
+`provider is not enabled`.
+
+**No credential from this section belongs in this repository.** Client secrets
+go into the Supabase dashboard and nowhere else — not `.env.local`, not a
+`VITE_` variable, not a GitHub secret. Anything prefixed `VITE_` is inlined into
+the bundle and is therefore published.
+
+### Google
+
+1. **Google Cloud Console → APIs & Services → Credentials → Create credentials
+   → OAuth client ID → Web application.**
+2. **Authorised redirect URI** — this is Supabase's callback, not ELAKAI's:
+   ```
+   https://cvbwpclogcpbdovrsftj.supabase.co/auth/v1/callback
+   ```
+3. Copy the client ID and client secret into **Supabase → Authentication →
+   Providers → Google**, and enable it.
+4. Fill in the OAuth consent screen. While it is in "Testing", only accounts on
+   the test-user list can sign in — this is the usual reason a correctly
+   configured Google button works for you and for nobody else.
+
+### Facebook
+
+1. **developers.facebook.com → My Apps → Create App → Consumer**, then add the
+   **Facebook Login** product.
+2. **Facebook Login → Settings → Valid OAuth Redirect URIs** — the same Supabase
+   callback:
+   ```
+   https://cvbwpclogcpbdovrsftj.supabase.co/auth/v1/callback
+   ```
+3. Copy the App ID and App Secret into **Supabase → Authentication → Providers →
+   Facebook**, and enable it.
+4. The app must be switched from Development to **Live**, and `email` must be
+   granted under App Review, or only the app's own developers can sign in.
+
+### Both
+
+The redirect back into ELAKAI is `/account/callback`, already added in step 3.
+It is the same landing page the email confirmation uses, and it carries the
+contribute intent in its query string — so "clicked Add Pharmacy → Continue with
+Google → back to the Add Pharmacy form" works by the same mechanism as the email
+path, with no extra configuration.
+
+One thing to know about Facebook: a user may sign in without releasing an email
+address. `profiles.email` is then null, which is valid — the dashboard falls
+back to their name, and nothing in the system requires the address.
+
+---
+
 ## STEP 4 — Promote any further administrators
 
 There is deliberately no screen for this. An app that can promote an account is

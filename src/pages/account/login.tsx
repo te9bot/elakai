@@ -9,6 +9,7 @@ import {
   FormNotice,
 } from '@/components/account/auth-shell'
 import { SignInTransition } from '@/components/account/sign-in-transition'
+import { SocialSignIn } from '@/components/account/social-sign-in'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAccount } from '@/lib/auth'
@@ -175,6 +176,14 @@ export default function AccountLoginPage() {
           </FormNotice>
         </div>
       )}
+
+      {/* Above the form, not below it: a social button is one tap and the form
+          is four fields, so offering the short path second means most people
+          have already started typing before they see it. Renders nothing at all
+          when neither provider is configured. */}
+      <div className="mb-5">
+        <SocialSignIn intent={intent} verb="Sign in" disabled={busy} />
+      </div>
 
       <form onSubmit={submit} className="space-y-4" noValidate>
         <Field id="login-email" label="Email">

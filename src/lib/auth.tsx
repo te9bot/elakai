@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
+import type { SocialProvider } from './auth-providers'
 import { ADMIN_USER_ID } from './config'
 import { contributorSchemaReady } from './contrib-schema'
 import { HAS_BACKEND, supabase } from './supabase'
@@ -94,6 +95,16 @@ type AccountValue = {
    */
   schemaReady: boolean
   signIn: (email: string, password: string) => Promise<void>
+  /**
+   * Starts a social sign-in. Does not resolve to a session — it navigates the
+   * whole page away to the provider, so nothing after the call runs.
+   *
+   * `redirectTo` is where the browser comes back to, and it carries the
+   * contribute intent in its query string exactly as the email confirmation
+   * link does. The OAuth round-trip leaves and re-enters the app, so in-memory
+   * state does not survive it either.
+   */
+  signInWithProvider: (provider: SocialProvider, redirectTo?: string) => Promise<void>
   signUp: (input: {
     fullName: string
     email: string
@@ -288,6 +299,36 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         // place that decides how a failure is worded.
         if (error) throw new Error(error.message)
         // `onAuthStateChange` takes it from here.
+      },
+
+      async signInWithProvider(provider, redirectTo) {
+        if (!supabase) throw new Error('Supabase is not configured.')
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider,
+          options: {
+            redirectTo,
+            /*
+             * No `scopes` and no `queryParams`.
+             *
+             * The default scope for both providers is the profile and email
+             * this system needs to create an account, and nothing else. Asking
+             * for more — a contacts scope, an offline refresh token — would put
+             * a longer consent screen in front of somebody who wanted to add a
+             * pharmacy, for data this app has no use for and no business
+             * holding.
+             */
+          },
+        })
+        if (error) {
+          // The message worth translating: it is what a misconfigured provider
+          // says, and the person reading it can do nothing about it.
+          if (/provider is not enabled|unsupported provider/i.test(error.message)) {
+            throw new Error('That sign-in method is not available on this site.')
+          }
+          throw new Error(error.message)
+        }
+        // On success the browser is already navigating away. Nothing after this
+        // line runs, which is why there is no session to return.
       },
 
       async signUp({ fullName, email, password, redirectTo }) {

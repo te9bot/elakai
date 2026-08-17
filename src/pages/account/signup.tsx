@@ -9,6 +9,7 @@ import {
   FormNotice,
 } from '@/components/account/auth-shell'
 import { SignInTransition } from '@/components/account/sign-in-transition'
+import { SocialSignIn } from '@/components/account/social-sign-in'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAccount } from '@/lib/auth'
@@ -268,6 +269,17 @@ export default function AccountSignupPage() {
           </FormNotice>
         </div>
       )}
+
+      {/*
+       * Social sign-up skips the confirmation email entirely — the provider has
+       * already verified the address — so on this screen it is not merely
+       * shorter, it is a different and much better journey: one tap and
+       * straight into the form they were trying to reach, with no detour
+       * through a mail client. Renders nothing when neither is configured.
+       */}
+      <div className="mb-5">
+        <SocialSignIn intent={intent} verb="Sign up" disabled={busy} />
+      </div>
 
       <form onSubmit={submit} className="space-y-4" noValidate>
         <Field id="signup-name" label="Full name" error={fieldErrors.name}>
