@@ -61,9 +61,13 @@ const EASE = [0.22, 1, 0.36, 1] as const
  *   arrives moving instead of arriving and then starting.
  *
  * A percentage rather than a pixel count, so the head start scales with the
- * device: about 210px of pre-roll on a 390x844 phone, about 250px on a laptop.
- * At a brisk 1000px/s thumb flick that is roughly 200ms of runway, which is
- * most of a 550ms entrance already spent before the card is visible.
+ * device: about 285px of pre-roll on a 390x844 phone, about 90px on a laptop.
+ * At a brisk 1000px/s thumb flick 285px is roughly 285ms of runway — a little
+ * under half of a 620ms entrance already spent before the card is visible, so it
+ * arrives with the rest still to run.
+ *
+ * There is a ceiling on how much runway helps, and it is the entire reason the
+ * numbers below are the numbers below. See PRE_ROLL_BY_TIER.
  *
  * `once: true` is unchanged — a reveal still never replays on scroll back.
  */
@@ -78,17 +82,28 @@ const EASE = [0.22, 1, 0.36, 1] as const
  * Percentages rather than pixel counts, so each tier still scales with the
  * actual window instead of assuming a canonical device size.
  *
- *   phone    45% — about 380px on a 390x844 screen. This is the tier the
+ *   phone    34% — about 285px on a 390x844 screen. This is the tier the
  *                  complaint came from, and the one where a single-column card
- *                  is a large fraction of the screen. At a ~1000px/s thumb
- *                  flick that is ~380ms of a 550ms entrance already spent
- *                  before the card is visible, so it arrives with roughly the
- *                  last third of its travel left to run.
+ *                  is a large fraction of the screen.
  *
- *                  Raised from 34% by request after testing on a real phone,
- *                  which is the only place this can actually be judged. If it
- *                  ever reads as cards being finished before they arrive, this
- *                  is the number to bring back down.
+ *                  This is a ceiling, not a dial, and 34% sits just under it. A
+ *                  reveal starts when the element is PRE_ROLL px below the fold
+ *                  and then runs for a fixed 620ms whatever the scroll does — so
+ *                  the element is still hidden at the moment the animation ends
+ *                  unless the page has travelled the whole pre-roll inside those
+ *                  620ms. That takes a scroll speed of PRE_ROLL / 0.62: about
+ *                  460px/s at 34%, which an ordinary thumb drag clears, and about
+ *                  610px/s at 45%, which it does not.
+ *
+ *                  Which is what "the animations stopped" turned out to be. 45%
+ *                  was tried here and reverted: it put the trigger far enough
+ *                  below the fold that at everyday scroll speeds a card finished
+ *                  its entrance while still off screen, then arrived already
+ *                  settled — reading as no animation at all. Past the ceiling,
+ *                  more runway makes reveals *less* visible, not more, so this
+ *                  number is not the one to reach for. If cards ever read as
+ *                  arriving late instead, the entrance duration in StaggerItem
+ *                  is the lever.
  *
  *   tablet   22% — about 225px at 768x1024. Two-column grids, so the cards are
  *                  shorter and less runway is needed to hide the start.
@@ -102,7 +117,7 @@ const EASE = [0.22, 1, 0.36, 1] as const
  *                  trigger no longer depends on the height of the container.
  */
 const PRE_ROLL_BY_TIER = {
-  phone: '0px 0px 45% 0px',
+  phone: '0px 0px 34% 0px',
   tablet: '0px 0px 22% 0px',
   desktop: '0px 0px 10% 0px',
 } as const
@@ -397,13 +412,29 @@ export function StaggerItem({
   as = 'div',
   motion = 'up',
   distance = 22,
-  duration = 0.55,
+  duration = 0.62,
 }: {
   children: ReactNode
   className?: string
   as?: keyof typeof ITEM_TAGS
   motion?: RevealMotion
   distance?: number
+  /*
+   * The other half of the pre-roll equation, and the side that is safe to move.
+   *
+   * Whether a card is still travelling when it arrives comes down to pre-roll
+   * distance against entrance time: the scroll has to cover PRE_ROLL within one
+   * duration, or the entrance is over before the card is on screen. Pre-roll is
+   * capped by that same relationship (see PRE_ROLL_BY_TIER), so duration is what
+   * is left to widen the band with.
+   *
+   * 0.55 -> 0.62 lowers the speed a phone scroll needs to clear from ~520px/s to
+   * ~460px/s, which covers deliberate dragging rather than only flicks. Grid
+   * cards had the shortest entrance in this file and are the ones the complaint
+   * was about; this also puts them in step with `Reveal`'s 0.65. On the house
+   * ease the extra 70ms lands almost entirely in the settle, so nothing reads as
+   * slower — the card is simply still moving when it becomes visible.
+   */
   duration?: number
 }) {
   const reduced = useReducedMotion()
