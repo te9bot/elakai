@@ -55,22 +55,50 @@ export default {
       },
       fontFamily: {
         sans: ['var(--font-ui)', 'system-ui', 'sans-serif'],
-        bangla: ['"Noto Sans Bengali"', 'var(--font-ui)', 'sans-serif'],
+        // Kept as an escape hatch for the rare place that must force the Bangla
+        // cut. It is no longer a *different* typeface from the UI stack, only a
+        // different script of the same family, so using it never introduces the
+        // seam it used to.
+        bangla: ['"Anek Bangla Variable"', 'var(--font-ui)', 'sans-serif'],
       },
       fontSize: {
         // Fluid scale — mobile-first, never smaller than 15px for body copy.
         // Landing-page display size. Larger and tighter than anything in the
         // app: the landing headline is read once, from further away, and is the
         // only place type is asked to carry the whole composition.
-        'display-xl': ['clamp(2.75rem, 1.2rem + 6.4vw, 6rem)', { lineHeight: '0.98', letterSpacing: '-0.042em', fontWeight: '800' }],
-        'display-lg': ['clamp(2.5rem, 1.6rem + 4.5vw, 4.25rem)', { lineHeight: '1.02', letterSpacing: '-0.035em', fontWeight: '800' }],
-        display: ['clamp(2rem, 1.35rem + 3.2vw, 3.25rem)', { lineHeight: '1.06', letterSpacing: '-0.03em', fontWeight: '800' }],
-        title: ['clamp(1.375rem, 1.15rem + 1.1vw, 1.875rem)', { lineHeight: '1.18', letterSpacing: '-0.02em', fontWeight: '700' }],
-        heading: ['clamp(1.125rem, 1.05rem + 0.4vw, 1.3125rem)', { lineHeight: '1.28', letterSpacing: '-0.015em', fontWeight: '700' }],
-        body: ['1rem', { lineHeight: '1.6' }],
-        'body-sm': ['0.9375rem', { lineHeight: '1.55' }],
-        meta: ['0.8125rem', { lineHeight: '1.45', letterSpacing: '0.005em' }],
-        micro: ['0.6875rem', { lineHeight: '1.3', letterSpacing: '0.08em', fontWeight: '700' }],
+        /*
+         * Retuned for Anek, and tuned for Bangla first.
+         *
+         * The default locale is `bn`, so Bangla is the primary reading
+         * experience rather than a translation of it. Two consequences run
+         * through every line below:
+         *
+         *   Leading is more generous than a Latin-only scale would want.
+         *   Bangla sets matras above and below the base line, and the tight
+         *   0.98 leading the old display sizes used was drawn for Manrope
+         *   setting English. In Bangla it collides.
+         *
+         *   Negative tracking is roughly a third of what it was. Latin display
+         *   type likes to be pulled tight; Bangla conjuncts do not, and past
+         *   about -0.02em they start to touch. The remaining negative values
+         *   are safe for both, and `html[lang="bn"]` neutralises them entirely
+         *   at display sizes — see index.css.
+         *
+         * Anek also has a taller x-height than Manrope at the same nominal
+         * size, so the body sizes read a little larger than the numbers
+         * suggest and did not need to grow.
+         */
+        'display-xl': ['clamp(2.75rem, 1.2rem + 6.4vw, 6rem)', { lineHeight: '1.04', letterSpacing: '-0.028em', fontWeight: '800' }],
+        'display-lg': ['clamp(2.5rem, 1.6rem + 4.5vw, 4.25rem)', { lineHeight: '1.08', letterSpacing: '-0.024em', fontWeight: '800' }],
+        display: ['clamp(2rem, 1.35rem + 3.2vw, 3.25rem)', { lineHeight: '1.12', letterSpacing: '-0.02em', fontWeight: '780' }],
+        title: ['clamp(1.375rem, 1.15rem + 1.1vw, 1.875rem)', { lineHeight: '1.26', letterSpacing: '-0.014em', fontWeight: '700' }],
+        heading: ['clamp(1.125rem, 1.05rem + 0.4vw, 1.3125rem)', { lineHeight: '1.34', letterSpacing: '-0.008em', fontWeight: '650' }],
+        body: ['1rem', { lineHeight: '1.68' }],
+        'body-sm': ['0.9375rem', { lineHeight: '1.62' }],
+        meta: ['0.8125rem', { lineHeight: '1.5', letterSpacing: '0.004em' }],
+        // Eyebrow/label type. Anek needs more tracking than Manrope did to stay
+        // legible this small, and Bangla needs the extra room more than Latin.
+        micro: ['0.6875rem', { lineHeight: '1.4', letterSpacing: '0.1em', fontWeight: '700' }],
       },
       borderRadius: {
         // Brief calls for 14–20px.

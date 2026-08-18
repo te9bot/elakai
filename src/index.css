@@ -11,9 +11,10 @@
 
 @layer base {
   :root {
-    /* Manrope carries Latin; Noto Sans Bengali picks up Bengali glyphs via
+    /* Anek Latin carries Latin; Anek Bangla picks up Bengali glyphs via
        per-character font fallback, so one stack serves both locales. */
-    --font-ui: 'Manrope Variable', 'Manrope', 'Noto Sans Bengali', system-ui, sans-serif;
+    --font-ui:
+      'Anek Latin Variable', 'Anek Bangla Variable', 'Noto Sans Bengali', system-ui, sans-serif;
 
     --canvas: 210 40% 98%; /* #F8FAFC */
     --surface: 0 0% 100%; /* #FFFFFF */
@@ -112,6 +113,35 @@
        animates is still motion the user did not ask for.
     */
     scroll-behavior: smooth;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Bangla typography                                                   */
+  /* ------------------------------------------------------------------ */
+  /*
+     The default locale is `bn`, so this is the primary reading experience and
+     not an edge case. `lib/i18n.tsx` writes the locale to `documentElement.lang`,
+     which is what these hook onto.
+
+     Negative tracking is a Latin display convention. Bangla is written along a
+     headstroke (matra) with conjunct clusters hanging off it, and pulling the
+     letters together does not make it look tighter — it makes the conjuncts
+     touch. The scale in tailwind.config.ts already holds the negative values
+     well below where that starts, so this is the second belt: at display sizes,
+     where the tracking is largest and the glyphs are biggest, Bangla gets none
+     of it.
+
+     Latin is untouched. `html[lang="en"]` keeps every value from the scale.
+  */
+  html[lang='bn'] :is(.text-display-xl, .text-display-lg, .text-display, .text-title) {
+    letter-spacing: 0;
+  }
+
+  /* Bangla sets marks above and below the line, so it needs more room between
+     lines than the same size of Latin does. Applied to running copy only —
+     display sizes already carry generous leading in the scale itself. */
+  html[lang='bn'] :is(.text-body, .text-body-sm) {
+    line-height: 1.78;
   }
 
   /*
