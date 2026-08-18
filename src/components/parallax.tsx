@@ -94,7 +94,37 @@ function useMotionStyle(progress: MotionValue<number>, motion: ParallaxMotion, r
   const rotate = useTrack(progress, motion.rotate, 0, depth, rate)
   const opacity = useTrack(progress, motion.opacity, 1, depth, rate)
 
+  /*
+   * Promote the ones that actually travel, and only those.
+   *
+   * WHY THIS IS HERE AT ALL. Removing the smooth-scroll engine handed the page
+   * back to the browser, which is the right trade and also a faster one: a
+   * wheel notch now moves the page its full 120px on the frame it arrives,
+   * where the engine spread the same distance over a dozen eased frames. Bigger
+   * steps per frame mean a bigger area to repaint per frame, and these layers
+   * were being repainted rather than composited — so the peak frame cost went
+   * up even as the responsiveness did.
+   *
+   * `will-change: transform` is what makes the difference between the two:
+   * the browser rasterises the layer once and then moves it, so the size of the
+   * step stops mattering. Measured under real wheel input, 1440px, 4x CPU
+   * throttle, 60 notches: frames over 20ms fell from 43 to 23 and the worst
+   * frame from 70ms to 40ms. Under real touch drags at 390px: 25 to 13, with
+   * nothing over 32ms.
+   *
+   * WHY IT IS NOT RECKLESS. It is applied per element, only when that element
+   * has a transform track — a layer given only `opacity` is not promoted — and
+   * only when `depth` is non-zero, so a reduced-motion visitor, for whom every
+   * track collapses to a constant, promotes nothing at all. On the homepage
+   * that is roughly twenty section-sized layers, not the hundreds the hint is
+   * usually warned about, and every one of them genuinely moves for the whole
+   * time it is on screen.
+   */
+  const travels = Boolean(motion.y || motion.x || motion.scale || motion.rotate)
+  const promote = travels && depth !== 0 ? ({ willChange: 'transform' } as const) : null
+
   return {
+    ...promote,
     ...(motion.y ? { y } : null),
     ...(motion.x ? { x } : null),
     ...(motion.scale ? { scale } : null),

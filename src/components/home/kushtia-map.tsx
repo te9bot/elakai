@@ -746,9 +746,9 @@ function KushtiaMapImpl({
      * Khoksa, held separately from the parallax so it can ease at its own rate.
      *
      * Read from the scroll value this component is *already* subscribed to.
-     * Nothing here adds a listener, touches the wheel, or asks the scroll
-     * engine for anything — lib/smooth-scroll.ts and lib/scroll.ts are not
-     * involved beyond the `onScrollFrame` callback that was here before.
+     * Nothing here adds a listener or touches the wheel: lib/scroll.ts hands it
+     * the browser's own `scrollY`, once per frame, through the `onScrollFrame`
+     * callback below.
      */
     const focus = { current: 0, target: 0 }
 

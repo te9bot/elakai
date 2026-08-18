@@ -1,45 +1,57 @@
 /* ==========================================================================
- * One scroll listener for the whole site.
+ * The one scroll pipeline for the whole site.
  *
- * WHY
+ *      wheel / thumb / trackpad / scrollbar / Page Down
+ *                          |
+ *                 the browser scrolls              <- not JavaScript
+ *                          |
+ *                 passive 'scroll' listener        <- records a number
+ *                          |
+ *              one requestAnimationFrame           <- at most one in flight
+ *                          |
+ *      +-------------------+-------------------+
+ *      |                   |                   |
+ *   map layers          the glow            the header
  *
- * Before this there were three independent `window.addEventListener('scroll')`
- * registrations — the map backdrop, the header, and each infinite band — every
- * one of them doing its own work on every scroll event, on its own schedule,
- * with no idea the others existed. That is the shape the browser is worst at:
- * N handlers firing at wheel frequency, each free to read layout and each free
- * to trigger its own render.
+ * WHAT THIS REPLACED, AND WHY IT MATTERS
  *
- * This is the single loop everything else subscribes to:
+ * Until now this module had a second mode. A Lenis instance owned the page's
+ * scrolling on desktop: it called `preventDefault()` on wheel input, converted
+ * the delta into a target, interpolated toward it every frame, wrote the
+ * document position itself, and published the interpolated value here through
+ * `publishScroll()`. The subscribers below then ran from *that* number rather
+ * than from the browser's.
  *
- *      browser scroll event
- *              |
- *      record scrollY  (no work, no layout read)
- *              |
- *      one requestAnimationFrame
- *              |
- *      +-------+--------+---------+
- *      |                |         |
- *   parallax         header    background
+ * The cost was not the interpolation. It was that the browser could not begin
+ * scrolling until JavaScript had run: input landed on a main thread that was
+ * also drawing a full-viewport SVG map, and the first frame of every gesture
+ * waited behind that work. That is the stutter — it is worst exactly when you
+ * start scrolling, which is when the main thread is busiest.
  *
- * The listener itself does nothing but store a number. All the work happens
- * once per frame, in frame order, after the browser has already decided where
- * the page is — which is the only moment at which reading it is free and
- * writing to it is not going to be undone.
+ * Native scrolling has none of that shape. The compositor scrolls the page
+ * whether or not the main thread is free, so the page moves on the same frame
+ * the wheel turns. The visuals then follow from a passive listener; if a frame
+ * is late the parallax is a frame late, and the scroll itself never is.
+ *
+ * THE RULES THIS FILE KEEPS
+ *
+ *   * The listener is passive and does no work beyond reading `scrollY` — the
+ *     one property the browser can answer without flushing style or layout.
+ *   * At most one frame is ever scheduled. A burst of scroll events coalesces
+ *     into a single visual update.
+ *   * Subscribers receive a number and are expected to write a transform. One
+ *     that calls `setState` has moved the cost into React's reconciliation and
+ *     defeated the point.
+ *   * Nothing here writes the scroll position. `scrollY` is the browser's, and
+ *     it is the truth.
  *
  * WHAT IT DELIBERATELY DOES NOT MANAGE
  *
  * `lib/infinite-track.ts` keeps its own listener. It is already the good
  * version of this — an IntersectionObserver starts and stops it, so it is only
- * subscribed while its band is actually on screen, and it needs the raw value
- * inside its own physics loop rather than a frame-batched one. Folding it in
- * would mean it ran while off screen, which is worse. It is not an oversight.
- *
- * NO REACT
- *
- * Nothing here touches state. Subscribers are handed a number and are expected
- * to write a transform. A subscriber that calls `setState` has moved the cost
- * back into reconciliation and defeated the point.
+ * subscribed while its band is on screen, and it needs the raw value inside its
+ * own physics loop rather than a frame-batched one. Folding it in would mean it
+ * ran while off screen, which is worse. It is not an oversight.
  * ========================================================================== */
 
 export type ScrollSubscriber = (scrollY: number) => void
@@ -49,20 +61,6 @@ const subscribers = new Set<ScrollSubscriber>()
 let latest = 0
 let frame = 0
 let listening = false
-
-/**
- * True while the smooth-scroll engine is driving.
- *
- * When it is, the engine calls `publishScroll` from inside its own frame loop
- * and the native `scroll` listener stands down. That is what makes the
- * animated scroll value — the interpolated one the page is actually painted at
- * — the single source of truth, rather than having the parallax read the raw
- * document position and drift a frame out of step with the engine moving it.
- *
- * Native events remain the fallback: reduced motion, touch, and any browser
- * where the engine did not start.
- */
-let driven = false
 
 function flush() {
   frame = 0
@@ -84,74 +82,9 @@ function schedule() {
 }
 
 function onScroll() {
-  // Ignored while the engine is driving: it publishes the interpolated value
-  // from its own loop, and taking the raw document position here as well would
-  // mean two writers racing to set `latest` within a frame.
-  if (driven) return
-  // The entire handler. No layout read, no arithmetic, no allocation — reading
-  // `scrollY` is the one property the browser can answer without flushing
-  // pending style and layout work.
-  latest = window.scrollY
-  schedule()
-}
-
-/**
- * True only for the moment the engine is inside its own `raf` callback.
- *
- * This is what tells a synchronous flush from a dangerous one. See
- * `publishScroll`.
- */
-let insideEngineFrame = false
-
-/** Wraps the engine's per-frame advance. Called from lib/smooth-scroll.ts. */
-export function duringEngineFrame(advance: () => void): void {
-  insideEngineFrame = true
-  try {
-    advance()
-  } finally {
-    insideEngineFrame = false
-  }
-}
-
-/**
- * Called by the smooth-scroll engine with the value the page is being painted
- * at.
- *
- * Flushes synchronously *when the engine is mid-frame*, and only then. The
- * engine already is the frame loop at that moment, so deferring would put every
- * parallax layer exactly one frame behind the scroll it is locked to — visible
- * as the backdrop lagging the content on a fast flick.
- *
- * The condition is new and it matters on touch. Lenis runs with `syncTouch:
- * false`, so a finger scroll is a native scroll — and Lenis reports it by
- * emitting from inside the browser's own `scroll` event handler, not from its
- * frame loop. The unconditional flush that was here therefore ran every
- * subscriber synchronously inside the scroll event: the map's journey
- * calculation, its transform writes, the header's threshold check, all of it,
- * at scroll-event frequency rather than once per frame, in the one callback
- * where the browser is waiting to composite. That is the shape that makes a
- * page feel like it is dragging behind the thumb. Off the engine's frame, the
- * value is recorded and a single frame is scheduled — the same discipline as a
- * raw scroll event.
- */
-export function publishScroll(scrollY: number): void {
-  driven = true
-  latest = scrollY
-  if (!insideEngineFrame) {
-    schedule()
-    return
-  }
-  if (frame) {
-    cancelAnimationFrame(frame)
-    frame = 0
-  }
-  flush()
-}
-
-/** The engine has stopped; native scroll events take over again. */
-export function releaseScroll(): void {
-  driven = false
-  insideEngineFrame = false
+  // The entire handler. No layout read, no arithmetic, no allocation, and
+  // above all no `preventDefault` — this listener is registered passive, so the
+  // browser knows before calling it that it is free to scroll.
   latest = window.scrollY
   schedule()
 }

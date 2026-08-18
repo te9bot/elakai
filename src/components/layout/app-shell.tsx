@@ -6,26 +6,34 @@ import { Footer } from './footer'
 import { KushtiaMap } from '@/components/home/kushtia-map'
 import { LogoIntro } from '@/components/brand/logo-intro'
 import { useI18n } from '@/lib/i18n'
-import { useSmoothScroll } from '@/lib/smooth-scroll'
+
+/*
+ * THERE IS NO SCROLL ENGINE HERE ANY MORE, AND THAT IS THE POINT.
+ *
+ * `useSmoothScroll()` used to run on this line and owned the page's scrolling:
+ * a Lenis instance with `smoothWheel`, `lerp: 0.16` and `wheelMultiplier: 1.45`,
+ * a permanent `requestAnimationFrame` loop, and a virtual-scroll layer that
+ * called `preventDefault()` on wheel input and then moved the document itself
+ * frame by frame. Every wheel notch went
+ *
+ *     wheel -> preventDefault -> targetScroll -> lerp -> animatedScroll
+ *           -> rAF -> scrollTo -> subscribers
+ *
+ * before the page moved a pixel. That chain is why scrolling stuttered at the
+ * start of a gesture: the browser was not allowed to scroll: it had to wait for
+ * JavaScript to decide where the page should be, on a main thread that was also
+ * drawing the map and the parallax.
+ *
+ * It is gone. `lib/smooth-scroll.ts` is deleted, the dependency is uninstalled,
+ * and nothing in this project intercepts wheel or touch input. The browser owns
+ * the scroll — on its own thread, surviving a busy main thread — and
+ * `lib/scroll.ts` listens passively and drives the visuals from the position
+ * the browser has already decided on.
+ */
 
 export function AppShell() {
   const { t } = useI18n()
   const { pathname } = useLocation()
-
-  /*
-   * The scroll engine, on the public site only.
-   *
-   * Deliberately here rather than in App.tsx. The admin panel is a tool — an
-   * editor reaching for row 90 of a table wants the scroll their OS gives them,
-   * not an eased one — and the auth screens are single cards that do not scroll.
-   * Both render outside this shell, so both keep native scrolling.
-   *
-   * A no-op under reduced motion, and it never touches touch input. Every
-   * number in it is justified in lib/smooth-scroll.ts; the one that matters
-   * most is `wheelMultiplier`, which is what stops interpolation costing
-   * travel per wheel notch.
-   */
-  useSmoothScroll()
 
   // Move focus to the top of the document on navigation so screen-reader and
   // keyboard users are not left deep in the previous page's tab order.

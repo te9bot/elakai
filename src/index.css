@@ -115,32 +115,12 @@
   }
 
   /*
-     While the scroll engine is driving, CSS smooth scrolling must be off.
-
-     The engine writes a new scroll position every frame. With
-     `scroll-behavior: smooth` still in force the browser treats each of those
-     writes as a fresh request to *animate* somewhere, and starts easing toward
-     a target that has already moved on by the next frame. Two interpolations
-     compose, the page floats behind the wheel and never settles — which reads
-     as exactly the sticky, delayed scrolling the engine exists to remove.
-
-     Keyed on `.lenis`, NOT the `.lenis-smooth` that the library's own
-     documented snippet uses. Verified in the browser against the installed
-     version: Lenis 1.3 puts only `lenis` on the root, idle and mid-scroll.
-     Following the documentation leaves this rule matching nothing and the
-     conflict fully live — a failure invisible from reading the code, which is
-     why it is written down rather than just fixed.
-
-     `height: auto` is the other half of the library's reset: a `height: 100%`
-     root would clip the scrollable area it measures against. */
-  html.lenis,
-  html.lenis body {
-    height: auto;
-  }
-
-  html.lenis {
-    scroll-behavior: auto !important;
-  }
+     Two rules used to sit here — `html.lenis { scroll-behavior: auto }` and a
+     `height: auto` reset — both required because a scroll engine was writing
+     the document position every frame and CSS smooth scrolling fought it.
+     There is no engine any more, no `.lenis` class is ever put on the root, and
+     a rule that can never match is worse than no rule. Removed with it.
+  */
 
   /* ------------------------------------------------------------------ */
   /* Reduced motion                                                      */

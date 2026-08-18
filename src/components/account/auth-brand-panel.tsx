@@ -44,10 +44,10 @@ import logo from '../../../assets/elakai-logo.png'
  *
  * WHAT IT MAY NOT DO
  *
- * No scroll listener, no wheel handler, no second scroll engine. The map's
- * drift loop is an animation and nothing else — it never moves the document.
- * This page renders outside AppShell and therefore outside the scroll engine
- * entirely, so nothing here can reach lib/smooth-scroll.ts even by accident.
+ * No scroll listener, no wheel handler, no scroll engine anywhere. The map's
+ * drift loop is an animation and nothing else — it never moves the document,
+ * and neither does anything else in this project: the page scrolls natively,
+ * here and everywhere.
  * ========================================================================== */
 
 export function AuthBrandPanel() {

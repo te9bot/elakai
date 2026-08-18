@@ -15,9 +15,9 @@ import { useEffect, useSyncExternalStore } from 'react'
  *
  * For everyone who has NOT asked their operating system for less motion —
  * which is nearly everybody — absolutely nothing changes. The parallax, the map
- * backdrop's drift, the logo intro, the marquees, the count-ups and the smooth
- * scrolling all run exactly as they did. There is no new branch in their path;
- * `matches` is false and every consumer takes the same road it took before.
+ * backdrop's drift, the logo intro, the marquees and the count-ups all run
+ * exactly as they did. There is no new branch in their path; `matches` is false
+ * and every consumer takes the same road it took before.
  *
  * For someone who HAS asked: decorative movement stops, the site keeps its
  * layout, its colour, its typography, its glow and its content. It is the same
@@ -37,11 +37,11 @@ import { useEffect, useSyncExternalStore } from 'react'
  * WHERE THE ANSWER IS CONSUMED
  *
  * Every consumer already had its reduced branch written: lib/parallax.ts
- * (`useDepth` returns 0), lib/smooth-scroll.ts (native scrolling),
- * components/reveal.tsx (plain divs), components/infinite-track.tsx (a static
- * scrollable rail), components/home/kushtia-map.tsx (a still map with its
- * focus light placed rather than animated), the logo intro, the sign-in
- * transition and the count-ups. The CSS half reads `<html data-motion>`, which
+ * (`useDepth` returns 0), components/reveal.tsx (plain divs),
+ * components/infinite-track.tsx (a static scrollable rail),
+ * components/home/kushtia-map.tsx (a still map with its focus light placed
+ * rather than animated), the logo intro, the sign-in transition and the
+ * count-ups. The CSS half reads `<html data-motion>`, which
  * `useMotionAttribute` below publishes, plus the media query directly so the
  * damping applies before any JavaScript has run.
  * ========================================================================== */

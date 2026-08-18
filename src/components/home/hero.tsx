@@ -177,7 +177,16 @@ export function HomeHero({ isPrecise }: { isPrecise: boolean }) {
 
   // Depth comes from the *difference* in these rates, so they are all disabled
   // together rather than individually.
-  const par = (value: typeof copyY) => (reduced ? undefined : { y: value })
+  /*
+   * Same promotion as components/parallax.tsx, and for the same measured
+   * reason: these three layers travel for the whole time the hero is on
+   * screen, and with the page now scrolling natively they travel in bigger
+   * steps per frame. Compositing them costs one layer each and takes the
+   * repaint out of the scroll path. Nothing is promoted under reduced motion,
+   * where `par` returns undefined and none of them moves.
+   */
+  const par = (value: typeof copyY) =>
+    reduced ? undefined : { y: value, willChange: 'transform' as const }
 
   function submit(v: string) {
     navigate(v.trim() ? `/search?q=${encodeURIComponent(v.trim())}` : '/search')
@@ -263,7 +272,13 @@ export function HomeHero({ isPrecise }: { isPrecise: boolean }) {
             style={
               reduced
                 ? undefined
-                : { y: copyY, opacity: heroOpacity, scale: heroScale, originY: 0 }
+                : {
+                    y: copyY,
+                    opacity: heroOpacity,
+                    scale: heroScale,
+                    originY: 0,
+                    willChange: 'transform',
+                  }
             }
             className="min-w-0 lg:col-start-1 lg:row-start-1"
           >
