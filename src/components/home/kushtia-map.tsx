@@ -444,6 +444,58 @@ const CATCH_UP = 0.12
 /** Below half a pixel of remaining travel, nothing more is visible. */
 const SETTLED = 0.5
 
+/** The deepest layer, and therefore the one whose displacement is largest. */
+const MAX_DEPTH = Math.max(...LAYER_DEPTHS)
+
+/**
+ * How much of the scroll parallax this viewport gets.
+ *
+ * The same tiering as `useDepth` in lib/parallax.ts, and the same reasoning:
+ * these distances were authored against a 1440px stage, and replaying them at
+ * full strength on a 360px screen slides the labels much further across the
+ * artwork than the composition wants. Every layer is scaled by the same number,
+ * so the ratios between them — which is what the eye reads as depth — are
+ * untouched. Kept here rather than imported because this runs inside an effect,
+ * not a render.
+ */
+function depthTier(): number {
+  if (typeof window === 'undefined' || !window.matchMedia) return 1
+  if (window.matchMedia('(min-width: 1024px)').matches) return 1
+  if (window.matchMedia('(min-width: 768px)').matches) return 0.6
+  return 0.36
+}
+
+/**
+ * The smallest change worth writing to the layers, in SVG user units.
+ *
+ * WHY THIS EXISTS, AND WHY IT IS THE MOBILE SCROLL FIX
+ *
+ * A transform on an SVG `<g>` is not composited the way one on an HTML element
+ * is. The browser cannot hand the group its own layer and slide it; it has to
+ * re-rasterise the region the group covers. These seven groups each cover the
+ * whole artwork, and the artwork is a `fixed inset-0` backdrop, so *any* write
+ * here re-rasterises the full viewport — at whatever the device pixel ratio is,
+ * which on a phone is 3.
+ *
+ * Measured, headless Chrome at 390x844 / DPR 3 / 4x CPU throttle, scrolling the
+ * home page end to end: 42 frames over 20ms with these writes happening every
+ * frame, 22 with the writes frozen, 16 with the whole backdrop removed. The
+ * per-frame transform was the single largest source of dropped frames on the
+ * page — larger than every `backdrop-filter` on the site put together, which
+ * cost 2 frames.
+ *
+ * So the writes are quantised rather than removed. The step is the value that
+ * moves the *deepest* layer by about one CSS pixel: below that nothing is on
+ * screen to see, and above it the motion is exactly what it was. On a 390px
+ * phone that is a write roughly every fourth frame instead of every frame; on a
+ * 1440px desktop the step works out at 0.06 units, which no real frame ever
+ * fails to clear, so desktop keeps writing every frame as it always did.
+ */
+function writeStep(): number {
+  const width = typeof window === 'undefined' ? VIEW.w : window.innerWidth || VIEW.w
+  return VIEW.w / width / MAX_DEPTH
+}
+
 /**
  * How the map is being used, which is the only thing that differs between its
  * two homes.
@@ -692,12 +744,41 @@ function KushtiaMapImpl({
      * answer only changes when the viewport does.
      */
     let box = ref.current?.getBoundingClientRect() ?? null
+
+    /*
+     * How far the document can scroll, and the tier and step that depend on the
+     * viewport. All three are read here and on resize rather than per frame.
+     *
+     * `scrollHeight` in particular was read inside `journeyAt` on every scroll
+     * frame, and reading it forces the browser to flush pending style and
+     * layout work before it can answer — a synchronous layout, in the callback
+     * the browser most wants to keep short. Pages do grow as cards load, so it
+     * is refreshed by a ResizeObserver on the document element as well, which
+     * fires when the height actually changes instead of on the chance that it
+     * might have.
+     */
+    let scrollLength = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+    let tier = depthTier()
+    let step = writeStep()
+
     const remeasure = () => {
       box = ref.current?.getBoundingClientRect() ?? null
+      scrollLength = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+      tier = depthTier()
+      step = writeStep()
     }
+
+    const growth = new ResizeObserver(() => {
+      scrollLength = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+    })
+    growth.observe(document.documentElement)
 
     let frame = 0
     let running = false
+    /** The last value actually written to the layers. See `writeStep`. */
+    let written = { x: Number.NaN, y: Number.NaN }
+    /** The last position written to the focus light, in whole SVG units. */
+    let litAt = { x: Number.NaN, y: Number.NaN }
 
     function draw() {
       running = true
@@ -733,22 +814,39 @@ function KushtiaMapImpl({
       focus.current += df * FOCUS_CATCH_UP
       if (focusRef.current) {
         const p = pointOnJourney(focus.current)
-        focusRef.current.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`
+        // Rounded to whole units — a third of a CSS pixel on a phone, less on a
+        // desktop. The light is a 300-unit gradient and moving it repaints
+        // everything under it, so a sub-pixel rewrite is a repaint for nothing.
+        const lx = Math.round(p.x)
+        const ly = Math.round(p.y)
+        if (lx !== litAt.x || ly !== litAt.y) {
+          litAt = { x: lx, y: ly }
+          focusRef.current.style.transform = `translate3d(${lx}px, ${ly}px, 0)`
+        }
       }
 
       /*
-       * Seven writes, no reads.
+       * Seven writes, no reads — and only when there is a pixel in it.
        *
        * Writing transforms without reading layout in between is what keeps this
        * out of the layout-thrash pattern: the browser batches all seven into
-       * one style recalculation, and because `transform` on an SVG group is
-       * composited it never reaches layout at all.
+       * one style recalculation. What it does not avoid is the raster, because
+       * these are SVG groups rather than HTML elements and each write
+       * re-rasterises the region they cover — the whole viewport, here. `step`
+       * is what turns "every frame" into "every frame that moves something
+       * anyone can see"; see the note on `writeStep`.
        */
-      for (let i = 0; i < nodes.length; i++) {
-        const node = nodes[i]
-        if (!node) continue
-        const depth = LAYER_DEPTHS[i]
-        node.style.transform = `translate3d(${current.x * depth}px, ${current.y * depth}px, 0)`
+      if (
+        !(Math.abs(current.x - written.x) < step) ||
+        !(Math.abs(current.y - written.y) < step)
+      ) {
+        written = { x: current.x, y: current.y }
+        for (let i = 0; i < nodes.length; i++) {
+          const node = nodes[i]
+          if (!node) continue
+          const depth = LAYER_DEPTHS[i]
+          node.style.transform = `translate3d(${current.x * depth}px, ${current.y * depth}px, 0)`
+        }
       }
     }
 
@@ -776,7 +874,10 @@ function KushtiaMapImpl({
      * holds. Without it an eight-screen page would slide the labels a hundred
      * pixels clear of the markers they belong to.
      */
-    let scrollShare = (Math.min(currentScrollY(), SCROLL_SPAN) / SCROLL_SPAN) * 7
+    const shareAt = (scrollY: number) =>
+      (Math.min(scrollY, SCROLL_SPAN) / SCROLL_SPAN) * 7 * tier
+
+    let scrollShare = shareAt(currentScrollY())
 
     /**
      * How far through the page we are, 0..1 — and therefore how far along the
@@ -788,15 +889,17 @@ function KushtiaMapImpl({
      * travelling the district end to end, so it has to stretch across
      * everything there is to scroll.
      *
-     * `scrollHeight` is read here rather than cached because pages grow — cards
-     * load, sections reveal — and a length measured at mount would leave the
-     * light finishing early on every page that got taller. It is read once per
-     * scroll frame, which is a value the browser already has.
+     * The page length is `scrollLength`, measured on resize and whenever the
+     * document actually changes height, rather than read here. It used to be
+     * read here — `document.documentElement.scrollHeight`, once per scroll
+     * frame — and that is a forced synchronous layout inside the scroll path:
+     * the browser cannot answer it without first flushing whatever style and
+     * layout work is pending. Pages do grow as cards load, which is why it was
+     * read live; a ResizeObserver covers that without asking every frame.
      */
     function journeyAt(scrollY: number): number {
-      const max = document.documentElement.scrollHeight - window.innerHeight
-      if (max <= 0) return 0
-      return Math.min(Math.max(scrollY / max, 0), 1)
+      if (scrollLength <= 0) return 0
+      return Math.min(Math.max(scrollY / scrollLength, 0), 1)
     }
 
     focus.current = journeyAt(currentScrollY())
@@ -835,7 +938,7 @@ function KushtiaMapImpl({
     // The value arrives already batched to one frame, so this never recomputes
     // more often than it can paint.
     const unsubscribe = onScrollFrame((scrollY) => {
-      scrollShare = (Math.min(scrollY, SCROLL_SPAN) / SCROLL_SPAN) * 7
+      scrollShare = shareAt(scrollY)
       focus.target = journeyAt(scrollY)
       retarget()
     })
@@ -861,6 +964,7 @@ function KushtiaMapImpl({
 
     return () => {
       unsubscribe()
+      growth.disconnect()
       if (fine) window.removeEventListener('mousemove', onMove)
       window.removeEventListener('resize', remeasure)
       document.removeEventListener('visibilitychange', onVisibility)

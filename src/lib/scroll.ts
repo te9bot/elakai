@@ -96,17 +96,51 @@ function onScroll() {
 }
 
 /**
- * Called by the smooth-scroll engine, once per frame, with the value the page
- * is actually being painted at.
+ * True only for the moment the engine is inside its own `raf` callback.
  *
- * Flushes synchronously rather than scheduling a frame. The engine already IS
- * the frame loop, so deferring would put every parallax layer exactly one
- * frame behind the scroll it is supposed to be locked to — which is visible as
- * the backdrop lagging the content on a fast flick.
+ * This is what tells a synchronous flush from a dangerous one. See
+ * `publishScroll`.
+ */
+let insideEngineFrame = false
+
+/** Wraps the engine's per-frame advance. Called from lib/smooth-scroll.ts. */
+export function duringEngineFrame(advance: () => void): void {
+  insideEngineFrame = true
+  try {
+    advance()
+  } finally {
+    insideEngineFrame = false
+  }
+}
+
+/**
+ * Called by the smooth-scroll engine with the value the page is being painted
+ * at.
+ *
+ * Flushes synchronously *when the engine is mid-frame*, and only then. The
+ * engine already is the frame loop at that moment, so deferring would put every
+ * parallax layer exactly one frame behind the scroll it is locked to — visible
+ * as the backdrop lagging the content on a fast flick.
+ *
+ * The condition is new and it matters on touch. Lenis runs with `syncTouch:
+ * false`, so a finger scroll is a native scroll — and Lenis reports it by
+ * emitting from inside the browser's own `scroll` event handler, not from its
+ * frame loop. The unconditional flush that was here therefore ran every
+ * subscriber synchronously inside the scroll event: the map's journey
+ * calculation, its transform writes, the header's threshold check, all of it,
+ * at scroll-event frequency rather than once per frame, in the one callback
+ * where the browser is waiting to composite. That is the shape that makes a
+ * page feel like it is dragging behind the thumb. Off the engine's frame, the
+ * value is recorded and a single frame is scheduled — the same discipline as a
+ * raw scroll event.
  */
 export function publishScroll(scrollY: number): void {
   driven = true
   latest = scrollY
+  if (!insideEngineFrame) {
+    schedule()
+    return
+  }
   if (frame) {
     cancelAnimationFrame(frame)
     frame = 0
@@ -117,6 +151,7 @@ export function publishScroll(scrollY: number): void {
 /** The engine has stopped; native scroll events take over again. */
 export function releaseScroll(): void {
   driven = false
+  insideEngineFrame = false
   latest = window.scrollY
   schedule()
 }

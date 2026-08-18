@@ -23,16 +23,16 @@
  * accidentally go live, and there is no longer a switch to flip carelessly.
  */
 
-/**
- * The one Supabase auth user allowed into /admin.
+/*
+ * The administrator used to be named here, as one hard-coded Supabase user id
+ * that the browser compared against.
  *
- * Not a secret, and not the security boundary — a user id is public information
- * and this constant only decides which screen renders. The enforcement is the
- * RLS policies on `public.listings` and on `storage.objects`, which compare
- * `auth.uid()` to this same id inside Postgres. Editing the line below gets
- * someone a rendered sidebar whose every query comes back empty or refused.
+ * It is gone. `public.profiles.role` is the only place a role is decided,
+ * `public.is_admin()` is what every RLS policy and both moderation RPCs ask,
+ * and src/lib/auth.tsx reads that one column and nothing else. A second copy of
+ * the answer held in the client could only ever disagree with the database —
+ * and did, the moment a second administrator was promoted in `profiles`.
  */
-export const ADMIN_USER_ID = 'd97b7d76-720c-4c6f-94f4-647b33f39ef4'
 
 /** Central Kushtia, used as the distance origin when geolocation is unavailable. */
 export const KUSHTIA_CENTER = { lat: 23.9013, lng: 89.1206 } as const

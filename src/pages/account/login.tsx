@@ -29,7 +29,7 @@ import { cn } from '@/lib/utils'
  * session; `profiles.role` is what separates what happens next.
  */
 export default function AccountLoginPage() {
-  const { status, profile, signIn, sendPasswordReset, schemaReady } = useAccount()
+  const { status, signIn, sendPasswordReset, schemaReady } = useAccount()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -49,14 +49,12 @@ export default function AccountLoginPage() {
    * navigating the instant `signIn` resolves would land on the dashboard while
    * the role is still unknown. Instead the transition plays, and it is the
    * transition finishing that navigates — which is also the moment the profile
-   * query has had a second to complete.
+   * query has usually completed.
    */
   const [entering, setEntering] = useState(false)
 
   /** The transition has played out and we are only waiting on the role now. */
   const [transitionDone, setTransitionDone] = useState(false)
-  /** The ceiling on that wait, so a slow profile read can never strand anyone. */
-  const [roleWaitExpired, setRoleWaitExpired] = useState(false)
 
   /*
    * Where to go afterwards, in priority order:
@@ -84,45 +82,29 @@ export default function AccountLoginPage() {
   }, [intent, status])
 
   /*
-   * Whether the role is settled, as opposed to merely being signed in.
+   * Signed in — and, because 'contributor' and 'admin' are only ever set after
+   * `profiles.role` has been read, signed in *as a known role*.
    *
-   * `AccountProvider` reports 'contributor' as soon as it holds a session and
-   * refines to 'admin' once the profile read returns — that is what stops a
-   * slow query stranding anyone on this form. The cost is a window where an
-   * admin looks like a contributor, and navigating inside it would send them to
-   * the wrong dashboard. `profile` is null until that read completes, so it is
-   * exactly the "do we know yet" signal.
+   * This used to need a second signal (`profile !== null`) and a four-second
+   * ceiling on top of it, because the provider reported a provisional role
+   * while the read was in flight and the ceiling was what stopped a slow query
+   * stranding anyone on this form. Both are gone: the wait now lives in
+   * lib/auth.tsx, is bounded there, and always settles — so this screen can
+   * simply act on the status it is given.
    */
-  const roleKnown = profile !== null
-
-  // Somebody who is already signed in and lands here — a bookmark, a back
-  // button — is sent on rather than shown a form they do not need. Held until
-  // the role is known so the destination is the right one.
   const signedIn = status === 'contributor' || status === 'admin'
 
   useEffect(() => {
-    if (signedIn && roleKnown && !entering && !busy) {
+    if (signedIn && !entering && !busy) {
       // Nothing to animate: they did not just sign in, they already were.
       navigate(destination(), { replace: true })
     }
-  }, [signedIn, roleKnown, entering, busy, navigate, destination])
+  }, [signedIn, entering, busy, navigate, destination])
 
-  // Starts the moment the transition begins, not when it ends, so the ceiling
-  // covers the whole wait rather than adding four seconds on top of it.
+  // The transition finished before the role arrived. Leave the moment it does.
   useEffect(() => {
-    if (!entering) return
-    const timer = window.setTimeout(() => setRoleWaitExpired(true), 4000)
-    return () => window.clearTimeout(timer)
-  }, [entering])
-
-  // The transition has finished and we were still waiting on the role. Leave as
-  // soon as it lands, or when the ceiling is reached.
-  useEffect(() => {
-    if (!transitionDone) return
-    if (roleKnown || roleWaitExpired) {
-      navigate(destination(), { replace: true })
-    }
-  }, [transitionDone, roleKnown, roleWaitExpired, navigate, destination])
+    if (transitionDone && signedIn) navigate(destination(), { replace: true })
+  }, [transitionDone, signedIn, navigate, destination])
 
   if (status === 'unconfigured') {
     return (
@@ -141,18 +123,14 @@ export default function AccountLoginPage() {
    * It runs ~700ms; the profile read usually lands well inside that, in which
    * case nothing waits. When it does not, holding on the final frame of an
    * animation that is already playing is the right place to spend the time —
-   * the alternative is navigating on a provisional role and putting an admin on
-   * the contributor dashboard.
-   *
-   * The four-second ceiling is what stops this becoming the very hang it
-   * replaced. If the profile has still not arrived, go to the contributor
-   * dashboard: an admin can reach /admin from there, and nobody is stuck.
+   * the alternative is navigating on a role nobody has read yet and putting an
+   * admin on the contributor dashboard, which is what used to happen.
    */
   if (entering) {
     return (
       <SignInTransition
         onDone={() => {
-          if (roleKnown) {
+          if (signedIn) {
             navigate(destination(), { replace: true })
             return
           }
@@ -162,7 +140,7 @@ export default function AccountLoginPage() {
     )
   }
 
-  if (signedIn && roleKnown) return <Navigate to={destination()} replace />
+  if (signedIn) return <Navigate to={destination()} replace />
 
   async function submit(e: FormEvent) {
     e.preventDefault()

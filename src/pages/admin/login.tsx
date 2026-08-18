@@ -21,7 +21,7 @@ import logo from '../../../assets/elakai-logo.png'
  * session; what separates them is `profiles.role`, not which form was used.
  */
 export default function AdminLoginPage() {
-  const { status, signIn } = useAccount()
+  const { status, roleError, signIn } = useAccount()
   const location = useLocation()
 
   const [email, setEmail] = useState('')
@@ -42,8 +42,16 @@ export default function AdminLoginPage() {
    * are not signed out either — that session is a perfectly good contributor
    * session and dropping it would cost them their dashboard to no benefit,
    * which is what the previous version of this screen did to every non-admin.
+   *
+   * `roleError` is excluded, and that is the bug this screen was reported for.
+   * The provider used to report 'contributor' the instant it held a session,
+   * before the role had been read, so a correct admin sign-in put "this account
+   * is not an ELAKAI administrator" on screen for as long as the profile query
+   * took — over a second on a 700ms link. It no longer reports a role it has
+   * not read, and a role it could not read says so below instead of accusing
+   * the person of being the wrong account.
    */
-  const wrongAccount = status === 'contributor'
+  const wrongAccount = status === 'contributor' && !roleError
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -91,6 +99,20 @@ export default function AdminLoginPage() {
             <span>
               No backend is configured. Set <code>VITE_SUPABASE_URL</code> and{' '}
               <code>VITE_SUPABASE_ANON_KEY</code>, then reload.
+            </span>
+          </p>
+        )}
+
+        {status === 'contributor' && roleError && (
+          <p
+            role="alert"
+            className="mt-6 flex items-start gap-2.5 rounded-control border border-warning/30 bg-warning-soft px-4 py-3 text-meta text-warning-ink"
+          >
+            <AlertTriangle className="mt-px size-4 shrink-0" aria-hidden="true" />
+            <span>
+              You are signed in, but your account could not be loaded, so we
+              cannot confirm administrator access. {roleError} Reload to try
+              again.
             </span>
           </p>
         )}

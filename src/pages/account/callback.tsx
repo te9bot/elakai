@@ -120,7 +120,12 @@ export default function AccountCallbackPage() {
           // a spent intent never lingers to hijack a later sign-in.
           const stored = takeIntent()
           const intent = urlIntent ?? stored
-          navigate(intent ? intentToPath(intent) : '/contribute', { replace: true })
+          // Same rule as the sign-in form: an explicit intent wins, and the
+          // default is the dashboard the account actually has. `status` is only
+          // ever 'admin' after `profiles.role` has been read, and `entering` is
+          // set from that same status, so there is no provisional value here.
+          const home = status === 'admin' ? '/admin' : '/contribute'
+          navigate(intent ? intentToPath(intent) : home, { replace: true })
         }}
       />
     )

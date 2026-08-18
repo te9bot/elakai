@@ -15,8 +15,10 @@ import { toStoredPhone } from './phone'
  *
  * Authorization is not attempted here. Every call runs as the signed-in user
  * and the existing RLS policies decide what it may change — an admin screen
- * that tried to query its way around them would simply come back refused. The
- * UID check in `lib/auth.tsx` decides which screen renders, nothing more.
+ * that tried to query its way around them would simply come back refused.
+ * `public.is_admin()`, which reads `profiles.role`, is what both the table
+ * policies (0008) and the bucket policies (0011) ask. The role in
+ * `lib/auth.tsx` decides which screen renders, nothing more.
  * ========================================================================== */
 
 export const IMAGE_BUCKET = 'elakai-images'
@@ -35,6 +37,38 @@ function friendly(message: string): string {
   if (/row-level security|permission denied|not authorized|unauthorized/i.test(message)) {
     return 'Your account is not allowed to make that change.'
   }
+  return shared(message)
+}
+
+/**
+ * The same, for the image half — and it is a separate function because the two
+ * were saying the same thing and one of them was wrong.
+ *
+ * Uploading, replacing and removing a listing image go to Supabase Storage,
+ * which has its own policies on `storage.objects` and its own idea of who an
+ * administrator is. When those had drifted out of step with `profiles.role`
+ * (fixed in migration 0011), every image operation came back "new row violates
+ * row-level security policy" — and `friendly` turned that into "Your account is
+ * not allowed to make that change.", which sent whoever read it looking at
+ * roles and permissions for a problem that was in one bucket's policy list.
+ * Naming the image explicitly is the difference between a five-minute fix and
+ * an afternoon.
+ */
+function friendlyImage(message: string): string {
+  if (/row-level security|permission denied|not authorized|unauthorized/i.test(message)) {
+    return 'The image store refused that. Check the elakai-images storage policies — the listing itself was not changed.'
+  }
+  if (/bucket not found/i.test(message)) {
+    return 'The image store is not set up on this project (bucket elakai-images).'
+  }
+  if (/mime type|not supported/i.test(message)) {
+    return 'The image store does not accept that file type.'
+  }
+  return shared(message)
+}
+
+/** The failures that read the same whichever half of the API produced them. */
+function shared(message: string): string {
   if (/duplicate key|unique constraint/i.test(message)) {
     return 'A listing with those details already exists.'
   }
@@ -171,10 +205,19 @@ export async function uploadListingImage(file: File): Promise<string> {
     cacheControl: '3600',
   })
   if (error) {
+    /*
+     * Enough to diagnose it from a bug report, and nothing that could not be
+     * pasted into one: the operation, the bucket, the key, the signed-in user's
+     * id and the API's own words. No access token, no refresh token, no key.
+     */
+    const { data: auth } = await db.auth.getUser()
     console.error(
-      `[elakai] image upload failed.\n  bucket: ${IMAGE_BUCKET}\n  path: ${path}\n  reason: ${error.message}`,
+      '[elakai] image upload failed.\n' +
+        `  operation: storage.upload\n  bucket: ${IMAGE_BUCKET}\n  path: ${path}\n` +
+        `  user: ${auth?.user?.id ?? '(none)'}\n` +
+        `  reason: ${error.message}`,
     )
-    throw new Error(friendly(error.message))
+    throw new Error(friendlyImage(error.message))
   }
 
   const { data } = db.storage.from(IMAGE_BUCKET).getPublicUrl(path)
@@ -233,14 +276,36 @@ export function storagePathFromUrl(url: string | null | undefined): string | nul
  * Reports success as a boolean rather than throwing: this runs after the
  * database row is already gone, and a failure to tidy up a file must not be
  * reported to the admin as "the delete failed" when the delete did happen.
+ *
+ * A false here is worth reading in the console, though — it is how an orphaned
+ * object gets left in the bucket, and a run of them means the DELETE policy is
+ * refusing (which is what migration 0011 repaired).
  */
 export async function removeListingImage(url: string | null | undefined): Promise<boolean> {
   const path = storagePathFromUrl(url)
   if (!path) return false
   try {
-    const { error } = await requireSupabase().storage.from(IMAGE_BUCKET).remove([path])
+    const { data, error } = await requireSupabase().storage.from(IMAGE_BUCKET).remove([path])
     if (error) {
-      console.warn('[elakai] could not remove stored image:', error.message)
+      console.warn(
+        `[elakai] could not remove stored image.\n  operation: storage.remove\n` +
+          `  bucket: ${IMAGE_BUCKET}\n  path: ${path}\n  reason: ${friendlyImage(error.message)}`,
+      )
+      return false
+    }
+    /*
+     * The storage API answers a refused delete with 200 and an empty list
+     * rather than an error — RLS filters the rows it may touch, and touching
+     * none of them is not a failure as far as the endpoint is concerned. Taken
+     * at face value that reads as success, so the object silently stays in the
+     * bucket. The array length is the only thing that says otherwise.
+     */
+    if (Array.isArray(data) && data.length === 0) {
+      console.warn(
+        `[elakai] the image store removed nothing.\n  bucket: ${IMAGE_BUCKET}\n  path: ${path}\n` +
+          '  The object is still there — most likely the DELETE policy on ' +
+          'storage.objects does not cover this account.',
+      )
       return false
     }
     return true

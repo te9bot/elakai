@@ -8,10 +8,9 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import type { Session, User } from '@supabase/supabase-js'
+import { useQueryClient } from '@tanstack/react-query'
+import type { PostgrestError, Session, User } from '@supabase/supabase-js'
 import type { SocialProvider } from './auth-providers'
-import { ADMIN_USER_ID } from './config'
-import { contributorSchemaReady } from './contrib-schema'
 import { HAS_BACKEND, supabase } from './supabase'
 
 /* ==========================================================================
@@ -25,19 +24,30 @@ import { HAS_BACKEND, supabase } from './supabase'
  * `role` and `points` cannot be changed by any request this browser can make,
  * forged or otherwise.
  *
- * WHAT CHANGED, AND WHY
+ * ONE SOURCE OF ROLE, AND NO GUESSING BEFORE IT ARRIVES
  *
- * This file used to sign out, immediately and unconditionally, any session
- * whose user id was not one hard-coded constant. That was right when /admin was
- * the only reason to hold an account. It is wrong now: a contributor is a
- * legitimate signed-in user with a dashboard of their own, and dropping their
- * session on sight would make the whole contributor system unreachable.
+ * This file used to settle on 'contributor' the instant it held a session and
+ * refine to 'admin' when the profile query came back. That was an attempt to
+ * stop a slow query stranding people on the login form, and it worked, but it
+ * made the role a value that is *wrong for a while* rather than one that is
+ * *not known yet* — and every screen downstream had to invent its own way of
+ * telling those apart. They did not agree. An administrator signing in over a
+ * slow link was shown "this account is not an ELAKAI administrator" on the
+ * admin form, and a four-second ceiling elsewhere could drop them on the
+ * contributor dashboard instead of the panel. Measured against a 700ms link:
+ * the warning was on screen for over a second after a correct sign-in.
  *
- * So the id check is gone and a role check replaces it. The constant survives
- * in exactly one place — the fallback below, for a project that has not yet
- * applied 0008 — because on that project there is no `profiles` table to ask,
- * and the existing administrator has to keep working on the day the code lands
- * and before the SQL does.
+ * So there is no provisional role any more. `status` stays 'loading' — an
+ * explicit third state, not a default — until `profiles.role` has actually been
+ * read, and the wait is bounded here (see READ_TIMEOUT_MS) rather than left to
+ * each caller to put its own timer around. A read that never lands settles as a
+ * contributor with `roleError` set, which under-grants and says so, rather than
+ * silently guessing in either direction.
+ *
+ * The legacy `user.id === ADMIN_USER_ID` fallback is gone with it. It was a
+ * second, client-side authority for the one question this module exists to
+ * answer, and it disagreed with the database the moment a second administrator
+ * was promoted — which is what has happened on this project.
  *
  * THIS IS NOT THE SECURITY BOUNDARY
  *
@@ -62,15 +72,18 @@ export type AccountProfile = {
 }
 
 export type AccountStatus =
-  /** Still resolving the stored session. */
+  /**
+   * A session is being restored, or its role is being read. Nothing about the
+   * account is known yet and no routing decision may be made from this state.
+   */
   | 'loading'
   /** No Supabase environment configured at all. */
   | 'unconfigured'
   /** No session. The whole public site is available in this state. */
   | 'guest'
-  /** Signed in as an ordinary contributor. */
+  /** Signed in, and `profiles.role` says this is an ordinary contributor. */
   | 'contributor'
-  /** Signed in as an administrator. */
+  /** Signed in, and `profiles.role` says 'admin'. */
   | 'admin'
 
 export type SignUpResult = {
@@ -90,8 +103,14 @@ type AccountValue = {
   /** Convenience, and the one thing the admin screens actually ask. */
   isAdmin: boolean
   /**
+   * Set when the profile could not be read, which means the role behind
+   * `status` is a safe default rather than an answer. Screens that gate on
+   * being an admin say so instead of silently turning someone away.
+   */
+  roleError: string | null
+  /**
    * Whether migration 0008 is applied. False means the contributor system is
-   * not open yet; the public site and the existing admin panel are unaffected.
+   * not open yet; the public site is unaffected.
    */
   schemaReady: boolean
   signIn: (email: string, password: string) => Promise<void>
@@ -114,7 +133,7 @@ type AccountValue = {
   }) => Promise<SignUpResult>
   signOut: () => Promise<void>
   sendPasswordReset: (email: string) => Promise<void>
-  /** Re-reads the profile after something server-side changed the points. */
+  /** Re-reads the profile — after a points change, or to retry a failed read. */
   refresh: () => Promise<void>
 }
 
@@ -123,6 +142,19 @@ const AccountContext = createContext<AccountValue | null>(null)
 /* ------------------------------------------------------------------ */
 /* Profile resolution                                                  */
 /* ------------------------------------------------------------------ */
+
+/**
+ * How long one attempt at reading the profile may take.
+ *
+ * There has to be a ceiling somewhere or a hung request becomes a hung sign-in,
+ * and it belongs here rather than in each screen: the callers cannot tell a
+ * slow read from a lost one, and three of them had grown their own timers with
+ * three different opinions about what to do next.
+ */
+const READ_TIMEOUT_MS = 6000
+
+/** One retry, because a single dropped request on a phone is not an answer. */
+const READ_ATTEMPTS = 2
 
 /**
  * The display name a session carries before its profile row has been read.
@@ -141,58 +173,123 @@ function metadataName(user: User): string | null {
 }
 
 /**
- * The profile for a session.
- *
- * Returns the row from `public.profiles` when there is one. Two fallbacks, both
- * deliberate:
- *
- *   * No `profiles` table (0008 not applied). Falls back to the legacy id
- *     comparison so the existing administrator is not locked out of a panel
- *     they were using five minutes before the deploy.
- *
- *   * Table present, row absent. This should not happen — the trigger on
- *     `auth.users` creates one — but a user created before the migration ran,
- *     in the window before its backfill, would land here. Treated as an
- *     ordinary contributor with no points, which is the safe reading: it
- *     under-grants rather than over-grants.
+ * PostgREST reports a table the schema does not have as `PGRST205` (its own
+ * schema-cache miss) or as Postgres `42P01` (undefined_table), depending on
+ * whether the cache has been reloaded since. Both mean migration 0008 has not
+ * been applied. Any other error — network down, key wrong, RLS refusing — is
+ * deliberately not read as "missing".
  */
-async function loadProfile(user: User, schemaReady: boolean): Promise<AccountProfile> {
-  const legacy: AccountProfile = {
+function isMissingTable(error: PostgrestError): boolean {
+  if (error.code === 'PGRST205' || error.code === '42P01') return true
+  return /could not find the table|relation .* does not exist/i.test(error.message)
+}
+
+type ProfileResolution = {
+  profile: AccountProfile
+  schemaReady: boolean
+  /** Null when the role below was read rather than defaulted to. */
+  error: string | null
+}
+
+/**
+ * The profile for a session, in one round trip.
+ *
+ * It used to be two: `contributorSchemaReady()` first, then the profile read.
+ * They ran in sequence, so a sign-in paid two full round trips before it knew
+ * who had signed in — the single biggest contributor to the window in which the
+ * role was unknown. Both questions have one answer: if `profiles` can be
+ * queried the schema is there, and if it cannot the error code says why. The
+ * schema check is now a by-product of the read that had to happen anyway.
+ *
+ * Never guesses upwards. Every failure path returns role 'user' with `error`
+ * set, so a lost request can only under-grant, and the caller can tell "this
+ * person is a contributor" from "we could not find out".
+ */
+async function readProfile(user: User): Promise<ProfileResolution> {
+  const base: AccountProfile = {
     id: user.id,
     email: user.email ?? '',
     fullName: metadataName(user),
-    role: user.id === ADMIN_USER_ID ? 'admin' : 'user',
+    role: 'user',
     points: 0,
     createdAt: user.created_at ?? null,
   }
 
-  if (!schemaReady || !supabase) return legacy
+  if (!supabase) {
+    return { profile: base, schemaReady: false, error: 'Supabase is not configured.' }
+  }
+  const db = supabase
 
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, email, full_name, role, points, created_at')
-    .eq('id', user.id)
-    .maybeSingle()
+  let lastMessage = 'The account could not be read.'
 
-  if (error) {
-    console.warn('[elakai] could not read your profile:', error.message)
-    return { ...legacy, role: 'user' }
+  for (let attempt = 1; attempt <= READ_ATTEMPTS; attempt++) {
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), READ_TIMEOUT_MS)
+    try {
+      const { data, error } = await db
+        .from('profiles')
+        .select('id, email, full_name, role, points, created_at')
+        .eq('id', user.id)
+        .abortSignal(controller.signal)
+        .maybeSingle()
+
+      if (error) {
+        if (isMissingTable(error)) {
+          // Not a failure to retry: the table is not there. Nothing can grant a
+          // role on this project, so everyone signed in is a contributor.
+          console.info(
+            '[elakai] the contributor schema is not present — accounts stay ' +
+              'unprivileged until supabase/migrations/0008_contributors.sql is applied. ' +
+              `(${error.message})`,
+          )
+          return {
+            profile: base,
+            schemaReady: false,
+            error: 'The account system is not set up on this project yet.',
+          }
+        }
+        lastMessage = error.message
+        continue
+      }
+
+      if (!data) {
+        // The trigger on `auth.users` creates one, so this is a user made in
+        // the window before 0008's backfill. An ordinary contributor with no
+        // points is the safe reading: it under-grants rather than over-grants.
+        return { profile: base, schemaReady: true, error: null }
+      }
+
+      return {
+        schemaReady: true,
+        error: null,
+        profile: {
+          id: user.id,
+          email: (data.email as string) || user.email || '',
+          fullName: (data.full_name as string | null) ?? metadataName(user),
+          // Anything that is not exactly 'admin' is a contributor. Failing
+          // closed, so a typo or an unrecognised future role never grants
+          // moderation rights.
+          role: data.role === 'admin' ? 'admin' : 'user',
+          points: typeof data.points === 'number' ? data.points : 0,
+          createdAt: (data.created_at as string | null) ?? user.created_at ?? null,
+        },
+      }
+    } catch (thrown) {
+      lastMessage = controller.signal.aborted
+        ? 'The account took too long to load.'
+        : thrown instanceof Error
+          ? thrown.message
+          : lastMessage
+    } finally {
+      window.clearTimeout(timer)
+    }
   }
 
-  if (!data) {
-    return { ...legacy, role: 'user' }
-  }
-
-  return {
-    id: user.id,
-    email: (data.email as string) || user.email || '',
-    fullName: (data.full_name as string | null) ?? metadataName(user),
-    // Anything that is not exactly 'admin' is a contributor. Failing closed, so
-    // a typo or an unrecognised future role never grants moderation rights.
-    role: data.role === 'admin' ? 'admin' : 'user',
-    points: typeof data.points === 'number' ? data.points : 0,
-    createdAt: (data.created_at as string | null) ?? user.created_at ?? null,
-  }
+  console.warn('[elakai] could not read your profile:', lastMessage)
+  // Schema assumed present: the failure was not a missing table, and answering
+  // "not set up" for a dropped request would tell a contributor the whole
+  // system is off because their connection blinked.
+  return { profile: base, schemaReady: true, error: lastMessage }
 }
 
 /* ------------------------------------------------------------------ */
@@ -200,16 +297,22 @@ async function loadProfile(user: User, schemaReady: boolean): Promise<AccountPro
 /* ------------------------------------------------------------------ */
 
 export function AccountProvider({ children }: { children: ReactNode }) {
-  const [status, setStatus] = useState<AccountStatus>(
-    HAS_BACKEND ? 'loading' : 'unconfigured',
-  )
+  const [status, setStatus] = useState<AccountStatus>(HAS_BACKEND ? 'loading' : 'unconfigured')
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<AccountProfile | null>(null)
   const [schemaReady, setSchemaReady] = useState(false)
+  const [roleError, setRoleError] = useState<string | null>(null)
 
-  // Guards the async profile read against a session that changed while it was
-  // in flight — sign out during a slow query would otherwise resolve afterwards
-  // and reinstate the profile of the account that just left.
+  const queryClient = useQueryClient()
+
+  /*
+   * Guards every async resolution against the session changing under it.
+   *
+   * Bumped by `resolve` and — this is the part that was missing — by `signOut`
+   * as well. Without it a profile read still in flight when someone signs out
+   * lands afterwards and reinstates the account that just left, which is
+   * exactly the stale role that could survive an account switch.
+   */
   const generation = useRef(0)
 
   /**
@@ -229,6 +332,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     if (!session?.user) {
       setUser(null)
       setProfile(null)
+      setRoleError(null)
       setStatus('guest')
       return
     }
@@ -236,51 +340,26 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     setUser(session.user)
 
     /*
-     * A SESSION IS ENOUGH TO STOP BEING A GUEST.
-     *
-     * This used to wait for `contributorSchemaReady()` and then `loadProfile()`
-     * — two network round-trips — before leaving 'loading'. That is the bug
-     * behind "I signed in and it left me on the login page": the login screen
-     * only navigates away on 'contributor' or 'admin', and renders the form for
-     * 'loading'. So a slow or hanging profile query did not surface as an
-     * error or a spinner; it surfaced as a form that had apparently ignored a
-     * successful sign-in. Neither call has a timeout, so "slow" had no ceiling,
-     * and RequireAccount would sit on its loader for the same reason.
-     *
-     * Authentication and authorisation are separate questions and only the
-     * first one is answered by Supabase here. We know the moment we hold a
-     * session that this is not a guest; what we do not yet know is the role.
-     * So the status settles now and the role refines below.
-     *
-     * 'contributor' rather than 'admin' is deliberate and is the safe
-     * direction: a slow profile read can only ever under-grant. The admin
-     * panel's own guard requires status === 'admin', so nobody reaches it on
-     * this provisional value, and every admin RLS policy re-checks in Postgres
-     * regardless.
+     * `status` is deliberately left at whatever it was — 'loading' on a cold
+     * start — and NOT set to a placeholder role. Authentication and
+     * authorisation are separate questions, and only the first is answered by
+     * holding a session. The screens downstream need to tell "not known yet"
+     * from "known to be a contributor"; a provisional value takes that
+     * distinction away from them.
      */
-    if (generation.current === mine) setStatus('contributor')
-
-    const ready = await contributorSchemaReady()
-    if (generation.current !== mine) return
-    setSchemaReady(ready)
-
-    const resolved = await loadProfile(session.user, ready)
+    const resolved = await readProfile(session.user)
     if (generation.current !== mine) return
 
-    setProfile(resolved)
-    setStatus(resolved.role === 'admin' ? 'admin' : 'contributor')
+    setSchemaReady(resolved.schemaReady)
+    setProfile(resolved.profile)
+    setRoleError(resolved.error)
+    setStatus(resolved.profile.role === 'admin' ? 'admin' : 'contributor')
   }, [])
 
   useEffect(() => {
     if (!supabase) return
     const db = supabase
     let cancelled = false
-
-    // Asked once regardless of whether anyone is signed in, because the
-    // Contribute entry point has to know whether to offer an account at all.
-    void contributorSchemaReady().then((ready) => {
-      if (!cancelled) setSchemaReady(ready)
-    })
 
     // A stored session that has expired and cannot refresh resolves to no
     // session here, which lands on 'guest' — the same place an expired token
@@ -296,12 +375,9 @@ export function AccountProvider({ children }: { children: ReactNode }) {
        * the profile on it would issue a query every hour for no new
        * information; the session itself is already updated by the client.
        *
-       * Compared against a ref, not against `user`. This effect subscribes once
-       * and deliberately never re-subscribes, so the `user` it closed over is
-       * the one from the first render — `null`, forever. The comparison was
-       * therefore always `'<some id>' === undefined`, always false, and the
-       * guard it looks like it provides never once fired. A ref is read at call
-       * time, so it actually holds the current user.
+       * Compared against a ref, not against `user`: this effect subscribes once
+       * and never re-subscribes, so the `user` it closed over is the one from
+       * the first render.
        */
       if (event === 'TOKEN_REFRESHED' && session?.user?.id === userIdRef.current) return
       void resolve(session)
@@ -314,12 +390,33 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolve])
 
+  /*
+   * Cached data belongs to whoever was signed in when it was fetched.
+   *
+   * React Query keys the contributor screens by query name, not by account, so
+   * without this the submissions and points of the person who just signed out
+   * are served to the person who just signed in, for as long as the cache
+   * lives. Keyed on the user id, so it fires on sign-in, on sign-out, and on a
+   * switch straight from one account to another.
+   */
+  const previousUserId = useRef<string | null>(null)
+  useEffect(() => {
+    const id = user?.id ?? null
+    if (previousUserId.current !== null && previousUserId.current !== id) {
+      queryClient.clear()
+    }
+    previousUserId.current = id
+  }, [user?.id, queryClient])
+
   const refresh = useCallback(async () => {
     if (!user) return
-    const ready = await contributorSchemaReady()
-    const resolved = await loadProfile(user, ready)
-    setProfile(resolved)
-    setStatus(resolved.role === 'admin' ? 'admin' : 'contributor')
+    const mine = ++generation.current
+    const resolved = await readProfile(user)
+    if (generation.current !== mine) return
+    setSchemaReady(resolved.schemaReady)
+    setProfile(resolved.profile)
+    setRoleError(resolved.error)
+    setStatus(resolved.profile.role === 'admin' ? 'admin' : 'contributor')
   }, [user])
 
   const value = useMemo<AccountValue>(
@@ -328,6 +425,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       user,
       profile,
       isAdmin: profile?.role === 'admin',
+      roleError,
       schemaReady,
       refresh,
 
@@ -397,11 +495,17 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       },
 
       async signOut() {
-        if (!supabase) return
-        await supabase.auth.signOut()
+        // Ahead of the network call, not after it: from this moment any profile
+        // read still in flight belongs to a session that is over, and the
+        // generation bump is what stops it landing.
+        generation.current++
         setProfile(null)
         setUser(null)
-        setStatus('guest')
+        setRoleError(null)
+        setStatus(HAS_BACKEND ? 'guest' : 'unconfigured')
+        queryClient.clear()
+        if (!supabase) return
+        await supabase.auth.signOut()
       },
 
       async sendPasswordReset(email) {
@@ -415,7 +519,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         if (error) throw new Error(error.message)
       },
     }),
-    [status, user, profile, schemaReady, refresh],
+    [status, user, profile, roleError, schemaReady, refresh, queryClient],
   )
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>
@@ -452,7 +556,6 @@ export async function writeAuditLog(entry: {
   changes?: Record<string, unknown>
 }): Promise<void> {
   if (!supabase || !entry.actorId) return
-  if (!(await contributorSchemaReady())) return
 
   const { error } = await supabase.from('audit_log').insert({
     actor_id: entry.actorId,

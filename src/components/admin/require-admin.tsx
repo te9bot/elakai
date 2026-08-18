@@ -1,5 +1,8 @@
 import { Navigate, useLocation } from 'react-router-dom'
+import { AlertTriangle } from 'lucide-react'
+
 import { BrandLoader } from '@/components/brand-loader'
+import { Button } from '@/components/ui/button'
 import { useAccount } from '@/lib/auth'
 
 /**
@@ -12,40 +15,57 @@ import { useAccount } from '@/lib/auth'
  * whose `profiles.role` is 'admin' — and both moderation RPCs check the same
  * thing again before they touch anything.
  *
- * A signed-in contributor who reaches a /admin URL is a normal event now that
- * ordinary people hold accounts, so they are sent to their own dashboard rather
- * than to the admin login form, which would only invite them to try again with
- * credentials that do not exist.
+ * Three outcomes, and the middle one is the point:
+ *
+ *   loading            the role is not known yet. Hold. This used to require a
+ *                      second condition — 'contributor' with no profile —
+ *                      because the provider reported a provisional role before
+ *                      it had read one. It does not any more, so "not known
+ *                      yet" is one state with one name.
+ *   admin              render.
+ *   anything else      turn away — to the contributor dashboard for a signed-in
+ *                      contributor, since a real one arriving at /admin is now
+ *                      an ordinary event and offering them a login form would
+ *                      only invite credentials that do not exist.
+ *
+ * The fourth case is a signed-in account whose role could not be read at all.
+ * That is not "you are not an admin" and it is not silently treated as one: it
+ * says so and offers a retry, because turning an administrator away over a
+ * dropped request, with no explanation, is the failure this guard was reported
+ * for.
  */
 export function RequireAdmin({ children }: { children: React.ReactNode }) {
-  const { status, profile } = useAccount()
+  const { status, roleError, refresh } = useAccount()
   const location = useLocation()
 
   if (status === 'loading') return <BrandLoader className="min-h-dvh" />
 
-  /*
-   * 'contributor' with no profile yet is not an answer, it is a placeholder.
-   *
-   * `AccountProvider` settles on 'contributor' as soon as it holds a session,
-   * before the profile read that decides the role has come back — that is what
-   * stops a slow query stranding someone on the login page. The cost is that
-   * this guard can see 'contributor' for an account that is about to resolve as
-   * an admin, and redirecting on it would bounce a real admin off /admin a
-   * moment before their role arrived.
-   *
-   * `profile` is null until that read completes and non-null forever after, so
-   * it is exactly the "do we actually know yet" signal. Hold the loader until
-   * it does.
-   */
-  if (status === 'contributor' && !profile) return <BrandLoader className="min-h-dvh" />
+  if (status === 'admin') return <>{children}</>
+
+  // Signed in, but the role never arrived. Under-granted on purpose — never
+  // assume admin on a failure — and reported rather than hidden.
+  if (roleError && status === 'contributor') {
+    return (
+      <main className="grid min-h-dvh place-items-center bg-canvas px-4 py-10">
+        <div className="w-full max-w-sm text-center">
+          <AlertTriangle className="mx-auto size-8 text-warning" aria-hidden="true" />
+          <h1 className="mt-4 text-title">Could not confirm your account</h1>
+          <p className="mt-2 text-body-sm text-ink-muted">{roleError}</p>
+          <p className="mt-1 text-meta text-ink-subtle">
+            Administrator access needs your profile, and it did not load. Nothing
+            has changed about your account.
+          </p>
+          <Button className="mt-5" size="lg" block onClick={() => void refresh()}>
+            Try again
+          </Button>
+        </div>
+      </main>
+    )
+  }
 
   if (status === 'contributor') return <Navigate to="/contribute" replace />
 
-  if (status !== 'admin') {
-    // `from` survives the round trip so a bookmarked deep link still lands
-    // where it was pointed after signing in.
-    return <Navigate to="/admin/login" replace state={{ from: location.pathname }} />
-  }
-
-  return <>{children}</>
+  // `from` survives the round trip so a bookmarked deep link still lands where
+  // it was pointed after signing in.
+  return <Navigate to="/admin/login" replace state={{ from: location.pathname }} />
 }

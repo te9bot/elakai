@@ -36,13 +36,10 @@ export function RequireAccount({ children }: { children: React.ReactNode }) {
    * submit a contribution, since the submission form lives under this guard.
    * That is the requested behaviour. Reverting it is deleting this block.
    *
-   * Not gated on the profile having loaded, deliberately. `AccountProvider`
-   * reports 'contributor' provisionally while the profile read is in flight, so
-   * holding here would reintroduce the wait that used to strand people on the
-   * login form. An admin who deep-links straight to /contribute may therefore
-   * see it for the moment before their role resolves — a flash, on a screen
-   * whose data they are allowed to read anyway, rather than a hang for
-   * everyone.
+   * There is no flash of the wrong dashboard here any more. `status` is
+   * 'loading' until `profiles.role` has actually been read, so by the time this
+   * line runs the answer is the account's real one rather than a provisional
+   * 'contributor' that an admin briefly wore.
    */
   if (status === 'admin') return <Navigate to="/admin" replace />
 

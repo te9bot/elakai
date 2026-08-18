@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import Lenis from 'lenis'
 
 import { useReducedMotion } from './motion'
-import { publishScroll, releaseScroll } from './scroll'
+import { duringEngineFrame, publishScroll, releaseScroll } from './scroll'
 
 /* ==========================================================================
  * The scroll engine.
@@ -98,6 +98,33 @@ const WHEEL_MULTIPLIER = 1.45
  */
 const EASING = (t: number): number => Math.min(1, 1.001 - Math.pow(2, -10 * t))
 
+/**
+ * Whether this device has a wheel to smooth.
+ *
+ * The engine exists to interpolate wheel input. A phone has no wheel: with
+ * `syncTouch: false` — which is the right setting, see below — Lenis on a touch
+ * device smooths nothing at all. What it still does is hold a
+ * `requestAnimationFrame` loop open for the life of the page, run a
+ * MutationObserver on `<body>`, keep wheel and touch listeners registered, and
+ * re-emit every native scroll event through its own dispatch. That is a
+ * permanent 60Hz tax on the hardware least able to pay it, in exchange for no
+ * visual difference whatsoever.
+ *
+ * So the engine simply does not start there, and native scrolling — which runs
+ * on the compositor thread and survives a busy main thread — drives
+ * lib/scroll.ts directly. Every parallax subscriber reads the same value from
+ * the same place either way; only the source changes.
+ *
+ * `(pointer: coarse) and (hover: none)` rather than a width test or a user
+ * agent string: it asks about the input device, which is the actual question.
+ * A touchscreen laptop reports a fine pointer as well and keeps the engine; a
+ * tablet does not, and gets native scrolling, which is what it should have.
+ */
+function hasWheelToSmooth(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return true
+  return !window.matchMedia('(pointer: coarse) and (hover: none)').matches
+}
+
 export function useSmoothScroll(): void {
   const reduced = useReducedMotion()
 
@@ -111,6 +138,9 @@ export function useSmoothScroll(): void {
      * as the person has it configured.
      */
     if (reduced) return
+
+    // Touch devices scroll natively. See `hasWheelToSmooth`.
+    if (!hasWheelToSmooth()) return
 
     const lenis = new Lenis({
       lerp: LERP,
@@ -160,7 +190,10 @@ export function useSmoothScroll(): void {
 
     let frame = 0
     function tick(time: number) {
-      lenis.raf(time)
+      // Wrapped so lib/scroll.ts can tell "the engine is advancing the page
+      // right now" from "the engine is relaying a native scroll event". Only
+      // the first may flush subscribers synchronously; see `publishScroll`.
+      duringEngineFrame(() => lenis.raf(time))
       frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)

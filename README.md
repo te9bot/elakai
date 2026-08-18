@@ -70,12 +70,20 @@ Copy `.env.example` to `.env.local` and fill in the project URL and the
 publishable key (Project Settings → Data API / API Keys). Vite only exposes
 `VITE_`-prefixed variables to client code — `NEXT_PUBLIC_` names are inert here.
 
-The project needs `public.listings`, the `elakai-images` bucket, and RLS
-policies comparing `auth.uid()` to the admin's id. Set that same id as
-`ADMIN_USER_ID` in `src/lib/config.ts`; it decides which screen renders, while
-the policies decide what the queries are actually allowed to do. Create the
-admin under Authentication → Users — there is no `admin_users` table to
-populate.
+The project needs `public.listings`, the `elakai-images` bucket, and the
+migrations in `supabase/migrations/` applied in order. Authorization has one
+source: `public.profiles.role`. `public.is_admin()` reads it, every policy on
+`listings` (0008) and on the `elakai-images` bucket (0011) calls that function,
+and `src/lib/auth.tsx` reads the same column to decide which screen renders.
+
+Create the account under Authentication → Users, then promote it:
+
+```sql
+update public.profiles set role = 'admin', updated_at = now() where email = '<their email>';
+```
+
+There is no `admin_users` table, no admin id in the client, and deliberately no
+in-app screen that grants the role.
 
 ## Deployment
 

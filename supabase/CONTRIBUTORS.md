@@ -62,9 +62,19 @@ listings_admin_write   for all    using (public.is_admin()) with check (public.i
 ```
 
 The account that can edit does not change on the day this runs. Section 1
-promotes `d97b7d76-720c-4c6f-94f4-647b33f39ef4` — the id `src/lib/config.ts` has
-been comparing against in the browser — to `role = 'admin'`, so `is_admin()`
-returns true for exactly the account the old policies named.
+promotes `d97b7d76-720c-4c6f-94f4-647b33f39ef4` — the id `src/lib/config.ts` was
+comparing against in the browser — to `role = 'admin'`, so `is_admin()` returns
+true for exactly the account the old policies named.
+
+**The `elakai-images` bucket did not move with it.** Its policies on
+`storage.objects` were created in the dashboard and still tested that same
+hard-coded id, so an administrator promoted in `profiles` afterwards could edit
+every listing and upload no images: every upload came back `403 new row
+violates row-level security policy`, which the admin panel worded as "Your
+account is not allowed to make that change." Migration 0011 replaces those four
+policies with ones that call `public.is_admin()`, which is what makes
+`profiles.role` the single answer for storage as well as for tables. Apply it
+alongside 0008 — see `supabase/migrations/0011_listing_images_storage.sql`.
 
 ---
 
