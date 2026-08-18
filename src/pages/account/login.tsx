@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, Loader2, LogIn } from 'lucide-react'
 
@@ -65,10 +65,33 @@ export default function AccountLoginPage() {
    */
   const [intent] = useState<ContributeIntent | null>(() => intentFromSearch(location.search))
 
+  /*
+   * The stored intent, taken at most once.
+   *
+   * `takeIntent()` is a *consuming* read — it removes what it returns. This
+   * function is called from two effects and, at the bottom of this component,
+   * during render. So the first call took the intent and every later call saw
+   * an empty store and fell through to the role default below. Which of those
+   * two answers won was a matter of which call happened to run first, and under
+   * StrictMode the render path runs twice on its own.
+   *
+   * That is one of the ways somebody lands on the wrong dashboard: the intent
+   * is consumed by a render that never navigates, and the navigation that
+   * follows routes by role instead of by what the person actually clicked.
+   *
+   * Memoised in a ref rather than resolved at mount, because taking it at mount
+   * would throw the intent away for anyone who opens the sign-in page and
+   * leaves without signing in.
+   */
+  const stored = useRef<string | null | undefined>(undefined)
+
   const destination = useCallback((): string => {
     if (intent) return intentToPath(intent)
-    const stored = takeIntent()
-    if (stored) return intentToPath(stored)
+    if (stored.current === undefined) {
+      const taken = takeIntent()
+      stored.current = taken ? intentToPath(taken) : null
+    }
+    if (stored.current) return stored.current
     /*
      * The default lands on the dashboard the account actually has.
      *

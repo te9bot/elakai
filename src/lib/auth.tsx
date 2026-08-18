@@ -300,7 +300,32 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AccountStatus>(HAS_BACKEND ? 'loading' : 'unconfigured')
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<AccountProfile | null>(null)
-  const [schemaReady, setSchemaReady] = useState(false)
+  /*
+   * Whether the contributor schema exists — assumed present until something
+   * proves otherwise, and that direction is a bug fix, not optimism.
+   *
+   * This started as `false` and was only ever set by the profile read. The
+   * profile read only runs when there is a session. So for a signed-out
+   * visitor — which is everyone looking at the sign-in page — it stayed false
+   * forever, and /account/login and /account/signup told them "Contributions
+   * are not switched on for this site yet" on a project where `profiles`,
+   * `submissions`, `points_transactions` and `audit_log` all exist and work.
+   * Signing in cleared it, because the profile read finally ran, which is why
+   * the contributor dashboard behaved while the door to it said it was shut.
+   *
+   * I introduced that when the standalone `contributorSchemaReady()` probe was
+   * folded into the profile read to save a round trip on sign-in. The probe ran
+   * unconditionally on mount and covered the signed-out case; the profile read
+   * does not.
+   *
+   * Starting from `true` restores the signed-out behaviour without restoring
+   * the extra request. The flag now means "no evidence contributions are off",
+   * and the evidence is specific: `readProfile` returns `schemaReady: false`
+   * only for PostgREST's `PGRST205` or Postgres's `42P01` — the schema genuinely
+   * has no `profiles` table. A network failure does not lower it, because a
+   * dropped request is not evidence that a feature does not exist.
+   */
+  const [schemaReady, setSchemaReady] = useState(HAS_BACKEND)
   const [roleError, setRoleError] = useState<string | null>(null)
 
   const queryClient = useQueryClient()
@@ -337,16 +362,43 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       return
     }
 
+    /*
+     * A DIFFERENT ACCOUNT INVALIDATES EVERYTHING KNOWN ABOUT THE LAST ONE.
+     *
+     * This is the account-switch bug. `status` used to be left at whatever it
+     * was until the new profile landed, on the reasoning that a cold start
+     * begins at 'loading' anyway. That reasoning only covers a cold start. When
+     * a session *replaces* another one — signing in as somebody else, a
+     * SIGNED_IN arriving from another tab, a recovered session for a second
+     * account — the previous account's `status` and `profile` stayed on screen
+     * for the whole of `readProfile`, which is bounded by READ_TIMEOUT_MS and
+     * nothing shorter.
+     *
+     * Concretely: an administrator signs out, a contributor signs in, and until
+     * the contributor's row comes back `status` is still 'admin' and `isAdmin`
+     * is still true. RequireAdmin renders the moderation desk for them. It is
+     * exactly the "old role written back over the new login" the report
+     * describes, and it is worst on a slow link, where the window is longest.
+     *
+     * Dropping to 'loading' restores the one property this module promises: a
+     * role is either read or not known, never left over. Every guard already
+     * holds correctly on 'loading', so no screen needs to change.
+     */
+    const switching = userIdRef.current !== undefined && userIdRef.current !== session.user.id
+    if (switching) {
+      setProfile(null)
+      setRoleError(null)
+      /*
+       * Synchronously, not via the effect below. That effect runs after a
+       * commit, so without this line one render can pair the new user with the
+       * previous one's cached submissions and points.
+       */
+      queryClient.clear()
+    }
+    if (switching || userIdRef.current === undefined) setStatus('loading')
+
     setUser(session.user)
 
-    /*
-     * `status` is deliberately left at whatever it was — 'loading' on a cold
-     * start — and NOT set to a placeholder role. Authentication and
-     * authorisation are separate questions, and only the first is answered by
-     * holding a session. The screens downstream need to tell "not known yet"
-     * from "known to be a contributor"; a provisional value takes that
-     * distinction away from them.
-     */
     const resolved = await readProfile(session.user)
     if (generation.current !== mine) return
 
@@ -354,7 +406,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     setProfile(resolved.profile)
     setRoleError(resolved.error)
     setStatus(resolved.profile.role === 'admin' ? 'admin' : 'contributor')
-  }, [])
+  }, [queryClient])
 
   useEffect(() => {
     if (!supabase) return
