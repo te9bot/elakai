@@ -558,6 +558,25 @@ function KushtiaMapImpl({
   const panel = variant === 'panel'
 
   /*
+   * The focus light, placed but not animated.
+   *
+   * Both loops below return early under reduced motion, and both of them are
+   * also what puts the light somewhere. Without this the group keeps its
+   * initial `transform: none` and the light sits at the viewBox origin — a
+   * glow in the top-left corner of the artwork, nowhere near Daulatpur, for
+   * exactly the people least able to ignore it.
+   *
+   * So the glow stays, at the start of the journey, and simply does not
+   * travel. Same size, same colour, same blur, same place the animated version
+   * begins from.
+   */
+  useEffect(() => {
+    if (!reduced || !focusRef.current) return
+    const p = pointOnJourney(0)
+    focusRef.current.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`
+  }, [reduced])
+
+  /*
    * The clock-driven variant. Separate effect from the input-driven one below
    * so neither has to carry a branch through its whole body, and so the
    * backdrop's listeners are not merely skipped but never referenced.
@@ -761,11 +780,45 @@ function KushtiaMapImpl({
     let tier = depthTier()
     let step = writeStep()
 
-    const remeasure = () => {
+    /*
+     * Resize, coalesced to one frame and skipped when nothing it reads changed.
+     *
+     * THIS IS A PHONE PROBLEM AND ONLY A PHONE PROBLEM, which is why it is
+     * worth the eight lines. On a desktop `resize` fires while a window is
+     * being dragged and never during scrolling. On Android and iOS the address
+     * bar collapses as you scroll down and comes back as you scroll up, and
+     * every step of that fires `resize` — in the middle of the gesture. Each
+     * one landed here, and each one read `getBoundingClientRect()` and
+     * `scrollHeight`: two forced synchronous layouts, at scroll frequency, in
+     * exactly the moment the browser has the least time to spare. No emulator
+     * reproduces it, because no emulator has an address bar that hides.
+     *
+     * Two guards. The rAF coalesces a burst into one measurement per frame,
+     * and it lands in the frame's own read phase rather than inside the event.
+     * The dimension check is what makes the common case free: the toolbar
+     * changes the viewport height, `box` is a `fixed inset-0` element whose
+     * geometry follows it, and `scrollLength` is defined against it — so a
+     * height that has genuinely changed still re-measures, and the repeated
+     * events reporting the *same* height do not.
+     */
+    let measuredW = window.innerWidth
+    let measuredH = window.innerHeight
+    let pendingMeasure = 0
+
+    const measure = () => {
+      pendingMeasure = 0
+      measuredW = window.innerWidth
+      measuredH = window.innerHeight
       box = ref.current?.getBoundingClientRect() ?? null
-      scrollLength = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+      scrollLength = Math.max(0, document.documentElement.scrollHeight - measuredH)
       tier = depthTier()
       step = writeStep()
+    }
+
+    const remeasure = () => {
+      if (window.innerWidth === measuredW && window.innerHeight === measuredH) return
+      if (pendingMeasure) return
+      pendingMeasure = requestAnimationFrame(measure)
     }
 
     const growth = new ResizeObserver(() => {
@@ -969,6 +1022,9 @@ function KushtiaMapImpl({
       window.removeEventListener('resize', remeasure)
       document.removeEventListener('visibilitychange', onVisibility)
       if (running) cancelAnimationFrame(frame)
+      // The coalesced measurement is a frame this component owns like any
+      // other; leaving it queued past unmount is the same orphan.
+      if (pendingMeasure) cancelAnimationFrame(pendingMeasure)
       // Never leave the hint behind on an unmount mid-animation.
       for (const node of nodes) node?.style.removeProperty('will-change')
     }

@@ -12,7 +12,7 @@ key, 2026-08-17):
 | | |
 |---|---|
 | Tables in `public` | `listings`, and nothing else |
-| Rows in `public.listings` | 147 |
+| Rows in `public.listings` | 147 (145 until `0012_restore_skipped_listings.sql`) |
 | Columns | 16 (migrations 0004/0005/0007 not applied) |
 | Anon can read unpublished rows | no — `status=neq.active` returns `[]` |
 | Anon can INSERT | no — `42501 new row violates row-level security policy` |

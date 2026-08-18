@@ -228,13 +228,15 @@ export function App() {
         <QueryClientProvider client={queryClient}>
           {/* domAnimation only — drops roughly 25kb versus the full feature set. */}
           <LazyMotion features={domAnimation} strict>
-            {/* `never`, not `user`.
-                `user` reads `prefers-reduced-motion` straight from the OS,
-                which would leave every framer animation frozen on a machine
-                whose flag is set while the CSS half kept playing — a
-                half-reduced site with nothing on screen to explain it. ELAKAI
-                plays its full motion for everyone; see src/lib/motion.ts. */}
-            <MotionConfig reducedMotion="never">
+            {/* `user`, matching the CSS and `useReducedMotion`.
+                This was `never` while the site ignored the OS setting, on the
+                reasoning that a frozen framer layer over a still-animating CSS
+                layer is a half-reduced site with nothing to explain it. Both
+                halves answer the same question now, so the argument runs the
+                other way: leaving framer on `never` would be the half that
+                kept moving. Nothing changes for anyone who has not set the
+                preference. See src/lib/motion.ts. */}
+            <MotionConfig reducedMotion="user">
               {/* Wraps the router so the guards, the auth screens, the
                   contributor dashboard and the admin panel all share one
                   session; it resolves to 'unconfigured' and costs nothing when

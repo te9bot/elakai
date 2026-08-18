@@ -146,22 +146,113 @@
   /* Reduced motion                                                      */
   /* ------------------------------------------------------------------ */
   /*
-     There is no reduced-motion branch, in CSS or anywhere else. ELAKAI plays
-     its full motion for everyone, by explicit decision — the reasoning, what
-     it costs, and the three steps to restore it are in `src/lib/motion.ts`.
+     ELAKAI follows the operating system. Someone who has asked for less motion
+     gets the same site standing still — same layout, same colour, same
+     typography, same glow, same content, every control working. Everyone else
+     is not touched by a single line below, because none of it matches for
+     them. See src/lib/motion.ts for the JavaScript half.
 
-     What used to sit here was one `html[data-motion='reduced']` block that
-     damped every animation and transition to 0.001ms, plus an exception
-     keeping spinners turning. It is removed rather than left as dead CSS
-     because `useMotionAttribute` now writes `full` unconditionally, so the
-     selector could never match again and an unreachable rule that looks
-     load-bearing is worse than no rule.
+     KEYED ON BOTH THE QUERY AND THE ATTRIBUTE, deliberately:
 
-     The `motion-safe:` prefix is gone from the markup too. It compiled to
-     Tailwind's stock `@media (prefers-reduced-motion: no-preference)` despite
-     a plugin that was supposed to redefine it, which silently switched off
-     every ambient animation on any machine with the OS flag set. The
-     utilities are written plain now. See tailwind.config.ts. */
+       - The media query is the gate, so this applies on the very first paint,
+         before React has mounted and before `useMotionAttribute` has written
+         anything. Waiting for JavaScript would show a frame of the motion the
+         person asked not to see.
+       - `:not([data-motion='full'])` is the escape hatch. There is no in-app
+         override today; if one is added, writing `full` on <html> is the whole
+         of turning motion back on for someone who wants it despite the OS
+         setting.
+
+     0.01ms rather than 0: a zero-duration animation does not fire its events
+     in every engine, and `animation: none` on a element mid-keyframe can snap
+     it to an unstyled state. Nothing in this project listens for
+     `transitionend` or `animationend` — checked — but the value is cheap
+     insurance and is the accepted idiom.
+
+     WHAT KEEPS MOVING, AND WHY:
+
+       .animate-spin       a spinner on a button that is waiting on the network.
+       .animate-bar-slide  the indeterminate loading bar.
+       .animate-breathe    the logo mark while the app boots.
+       .animate-shimmer    skeleton placeholders.
+
+     All four say "this is working, wait" and nothing else on screen says it.
+     Removing them does not reduce motion so much as remove the only feedback
+     that the site has not frozen — which for someone who cannot rely on
+     movement to read a page is a worse outcome, not a better one. They are
+     small, local, and none of them travel across the viewport.
+
+     WHAT STOPS: every ambient loop — the floating glow blobs, the sheen, the
+     pulse ring — and every transition. The parallax, the map drift, the
+     marquee physics and the smooth scrolling are JavaScript and stop through
+     `useReducedMotion`, not here. */
+  @media (prefers-reduced-motion: reduce) {
+    html:not([data-motion='full']) *,
+    html:not([data-motion='full']) *::before,
+    html:not([data-motion='full']) *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+
+    /* The four that are feedback rather than decoration. Restated in full
+       because the blanket rule above is `!important` and specificity alone
+       cannot beat it. */
+    html:not([data-motion='full']) .animate-spin,
+    html:not([data-motion='full']) .animate-bar-slide,
+    html:not([data-motion='full']) .animate-breathe,
+    html:not([data-motion='full']) .animate-shimmer {
+      animation-duration: 1.5s !important;
+      animation-iteration-count: infinite !important;
+    }
+    html:not([data-motion='full']) .animate-spin {
+      animation-duration: 0.8s !important;
+    }
+
+    /* Ambient decoration, stopped outright rather than run once at 0.01ms —
+       these are the large blurred shapes behind the hero and the closing
+       panel, and a single instant jump to their 100% keyframe would move them
+       once for no reason. They keep their size, colour and blur; they simply
+       stay where they are. */
+    html:not([data-motion='full']) .animate-float,
+    html:not([data-motion='full']) .animate-float-alt,
+    html:not([data-motion='full']) .animate-sheen,
+    html:not([data-motion='full']) .animate-pulse-ring {
+      animation: none !important;
+    }
+
+    /*
+       The CSS marquee becomes a rail you can scroll yourself.
+
+       Not merely stopped: the blanket rule above would run one 0.01ms
+       iteration and leave the track parked at its end keyframe — a strip
+       scrolled off its own start, which reads as broken rather than as still.
+       Stopping the animation and handing the overflow back to the user keeps
+       every item reachable. The promotion hint goes too; there is nothing left
+       for the compositor to hold a layer for.
+
+       Its JavaScript sibling, the draggable band on the homepage, already does
+       this through `useReducedMotion` — see components/infinite-track.tsx,
+       which renders a plain scrollable rail and never starts its physics loop.
+    */
+    html:not([data-motion='full']) .marquee-track {
+      animation: none !important;
+      will-change: auto;
+    }
+    html:not([data-motion='full']) .marquee {
+      overflow-x: auto;
+    }
+  }
+
+  /*
+     The `motion-safe:` prefix is gone from the markup, and stays gone. It
+     compiled to Tailwind's stock `@media (prefers-reduced-motion:
+     no-preference)` despite a plugin that was supposed to redefine it, which
+     silently switched off every ambient animation on any machine with the OS
+     flag set — including when that was not what anyone wanted. The utilities
+     are written plain and the block above is the one place that answers the
+     media query. See tailwind.config.ts. */
 
   body {
     @apply bg-canvas text-ink font-sans antialiased;
@@ -210,12 +301,10 @@
     }
   }
 
-  /* The blanket `prefers-reduced-motion` shortening that normally lives here is
-     deliberately absent: ELAKAI plays its motion for everyone. That decision,
-     what it costs, and how to undo it are documented in one place —
-     `src/lib/motion.ts`. Nothing else in this file branches on the media query
-     either, so there is no half-reduced state where the JS animates and the CSS
-     does not. */
+  /* The blanket `prefers-reduced-motion` shortening lives at the top of this
+     file, next to the rest of the reduced-motion handling, rather than here —
+     one block, one place to read, no half-reduced state where the JavaScript
+     animates and the CSS does not. */
 }
 
 @layer components {
