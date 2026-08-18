@@ -78,11 +78,17 @@ const EASE = [0.22, 1, 0.36, 1] as const
  * Percentages rather than pixel counts, so each tier still scales with the
  * actual window instead of assuming a canonical device size.
  *
- *   phone    34% — about 287px on a 390x844 screen. This is the tier the
+ *   phone    45% — about 380px on a 390x844 screen. This is the tier the
  *                  complaint came from, and the one where a single-column card
  *                  is a large fraction of the screen. At a ~1000px/s thumb
- *                  flick that is ~287ms of a 550ms entrance already spent
- *                  before the card is visible, so it arrives mid-flight.
+ *                  flick that is ~380ms of a 550ms entrance already spent
+ *                  before the card is visible, so it arrives with roughly the
+ *                  last third of its travel left to run.
+ *
+ *                  Raised from 34% by request after testing on a real phone,
+ *                  which is the only place this can actually be judged. If it
+ *                  ever reads as cards being finished before they arrive, this
+ *                  is the number to bring back down.
  *
  *   tablet   22% — about 225px at 768x1024. Two-column grids, so the cards are
  *                  shorter and less runway is needed to hide the start.
@@ -96,7 +102,7 @@ const EASE = [0.22, 1, 0.36, 1] as const
  *                  trigger no longer depends on the height of the container.
  */
 const PRE_ROLL_BY_TIER = {
-  phone: '0px 0px 34% 0px',
+  phone: '0px 0px 45% 0px',
   tablet: '0px 0px 22% 0px',
   desktop: '0px 0px 10% 0px',
 } as const
