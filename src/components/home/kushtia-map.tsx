@@ -401,6 +401,16 @@ const FOCUS_RADIUS = 300
  */
 const FOCUS_HALF_LIFE_MS = 230
 
+/**
+ * The shortest gap between two writes of the focus light's position.
+ *
+ * Not a frame budget and not a quality dial — see the note on `paintFocus`,
+ * which is where the reasoning for 30Hz lives. Kept beside the half-life it is
+ * judged against: this is safe only because the light is already smoothed over
+ * 230ms, and the two numbers have to move together.
+ */
+const FOCUS_WRITE_MS = 32
+
 /* ------------------------------------------------------------------ */
 /* Component                                                           */
 /* ------------------------------------------------------------------ */
@@ -869,6 +879,8 @@ function KushtiaMapImpl({
     let written = { x: Number.NaN, y: Number.NaN }
     /** The last position written to the focus light, in whole SVG units. */
     let litAt = { x: Number.NaN, y: Number.NaN }
+    /** When that write happened. See `paintFocus`. */
+    let litAtMs = 0
 
     /**
      * The frame clock for the eases below.
@@ -882,6 +894,53 @@ function KushtiaMapImpl({
 
     /** The fraction of a remaining distance to close on a frame of `dt` ms. */
     const ease = (dt: number, halfLife: number) => 1 - Math.pow(2, -dt / halfLife)
+
+    /*
+     * Places the focus light, at most every FOCUS_WRITE_MS.
+     *
+     * WHY THIS IS RATE-LIMITED AND THE LAYERS ARE NOT
+     *
+     * A transform on an SVG `<g>` is geometry, not a compositor property, so
+     * every write here lays the map out again. The seven parallax layers write
+     * too, but `scrollShare` clamps at SCROLL_SPAN, so they stop moving after
+     * the first screen and cost almost nothing over a long page. The light is
+     * the opposite: `journeyAt` is deliberately measured against the *whole
+     * document*, so it travels for every pixel of every scroll and was writing
+     * on very nearly every frame.
+     *
+     * Measured at 390x844 / DPR 3 / 4x CPU throttle over a full-page scroll:
+     * freezing this one element dropped layouts from 332 to 37 and total
+     * main-thread time by 12%. Freezing all seven layers instead dropped
+     * layouts from 332 to 322. The light was the whole of it.
+     *
+     * The cadence rather than a distance threshold, because distance does not
+     * help where it hurts: during a fast flick the light moves far every frame,
+     * so any threshold small enough to be invisible is cleared every frame
+     * anyway. A time limit cuts exactly the case that costs the most.
+     *
+     * 32ms is safe here for a reason particular to this element. The light is a
+     * 300-unit radial gradient — wider than the viewport — whose outer stop is
+     * fully transparent, and it is already smoothed by a 230ms half-life ease
+     * whose entire purpose is to lag the page. Sampling that path at 30Hz
+     * instead of 60Hz changes where the glow is by a few percent of its own
+     * width, on a low-contrast wash that sits behind every card on the page.
+     * The path it travels is unchanged: the ease still runs every frame, only
+     * the write is rationed.
+     */
+    function paintFocus(now: number, force: boolean) {
+      const el = focusRef.current
+      if (!el) return
+      if (!force && now - litAtMs < FOCUS_WRITE_MS) return
+      litAtMs = now
+      const p = pointOnJourney(focus.current)
+      // Still rounded to whole units: at rest this is what stops a sub-pixel
+      // rewrite from repainting everything under the glow for nothing.
+      const lx = Math.round(p.x)
+      const ly = Math.round(p.y)
+      if (lx === litAt.x && ly === litAt.y) return
+      litAt = { x: lx, y: ly }
+      el.style.transform = `translate3d(${lx}px, ${ly}px, 0)`
+    }
 
     function draw(now: number) {
       running = true
@@ -910,6 +969,10 @@ function KushtiaMapImpl({
       ) {
         cancelAnimationFrame(frame)
         running = false
+        // Forced: the loop is about to stop, so a rationed write skipped on
+        // this frame would never be made up and the light would rest a few
+        // units short of where the scroll actually left it.
+        paintFocus(now, true)
         for (const node of nodes) node?.style.removeProperty('will-change')
         // The page has come to rest, so the beacon can breathe again. Resuming
         // rather than restarting: `animation-play-state` holds the phase, so it
@@ -926,18 +989,7 @@ function KushtiaMapImpl({
       // Eases slower than the parallax, so the light lags the page a little and
       // reads as something travelling rather than something pinned to scroll.
       focus.current += df * ease(dt, FOCUS_HALF_LIFE_MS)
-      if (focusRef.current) {
-        const p = pointOnJourney(focus.current)
-        // Rounded to whole units — a third of a CSS pixel on a phone, less on a
-        // desktop. The light is a 300-unit gradient and moving it repaints
-        // everything under it, so a sub-pixel rewrite is a repaint for nothing.
-        const lx = Math.round(p.x)
-        const ly = Math.round(p.y)
-        if (lx !== litAt.x || ly !== litAt.y) {
-          litAt = { x: lx, y: ly }
-          focusRef.current.style.transform = `translate3d(${lx}px, ${ly}px, 0)`
-        }
-      }
+      paintFocus(now, false)
 
       /*
        * Seven writes, no reads — and only when there is a pixel in it.
