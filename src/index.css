@@ -174,13 +174,22 @@
        .animate-spin       a spinner on a button that is waiting on the network.
        .animate-bar-slide  the indeterminate loading bar.
        .animate-breathe    the logo mark while the app boots.
-       .animate-shimmer    skeleton placeholders.
 
-     All four say "this is working, wait" and nothing else on screen says it.
-     Removing them does not reduce motion so much as remove the only feedback
-     that the site has not frozen — which for someone who cannot rely on
-     movement to read a page is a worse outcome, not a better one. They are
-     small, local, and none of them travel across the viewport.
+     All three say "this is working, wait", and a still spinner or a frozen
+     progress bar says the opposite — it reads as a site that has hung.
+     Stopping them would remove feedback rather than motion. They are small,
+     local, and none of them travels across the viewport.
+
+     The skeleton shimmer is NOT on that list, and that is a decision rather
+     than an oversight. A placeholder communicates "loading" by being a
+     placeholder; the sweep across it is decoration, and it is the one piece of
+     loading feedback that is still perfectly legible standing still. (It also
+     could not be kept without a fight: the shimmer reaches those elements
+     through `@apply animate-shimmer` on `.skeleton::after`, and Tailwind copies
+     the utility's rules — including any written inside a media query — onto the
+     applying selector without their `!important`. The blanket rule above
+     therefore wins on the pseudo-element regardless of what the exception list
+     says. Better to agree with the CSS than to write a comment it disproves.)
 
      WHAT STOPS: every ambient loop — the floating glow blobs, the sheen, the
      pulse ring — and every transition. The parallax, the map drift, the
@@ -201,9 +210,12 @@
        cannot beat it. */
     html:not([data-motion='full']) .animate-spin,
     html:not([data-motion='full']) .animate-bar-slide,
-    html:not([data-motion='full']) .animate-breathe,
-    html:not([data-motion='full']) .animate-shimmer {
+    html:not([data-motion='full']) .animate-breathe {
       animation-duration: 1.5s !important;
+      /* Both halves, and the iteration count is the half that matters: the
+         blanket rule above pins every animation to a single pass, so a spinner
+         listed here without it would turn once and stop — which looks more
+         broken than one that never moved. */
       animation-iteration-count: infinite !important;
     }
     html:not([data-motion='full']) .animate-spin {
