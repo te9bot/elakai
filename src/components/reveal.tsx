@@ -60,8 +60,9 @@ const EASE = [0.22, 1, 0.36, 1] as const
  *   card is actually on screen its entrance is already part-way through, so it
  *   arrives moving instead of arriving and then starting.
  *
- * A percentage rather than a pixel count, so the head start scales with the
- * device: about 285px of pre-roll on a 390x844 phone, about 90px on a laptop.
+ * Sized relative to the viewport rather than as a flat pixel count, so the head
+ * start scales with the device: about 285px of pre-roll on a 390x844 phone (with
+ * a ceiling — see below), about 90px on a laptop.
  * At a brisk 1000px/s thumb flick 285px is roughly 285ms of runway — a little
  * under half of a 620ms entrance already spent before the card is visible, so it
  * arrives with the rest still to run.
@@ -82,9 +83,12 @@ const EASE = [0.22, 1, 0.36, 1] as const
  * Percentages rather than pixel counts, so each tier still scales with the
  * actual window instead of assuming a canonical device size.
  *
- *   phone    34% — about 285px on a 390x844 screen. This is the tier the
+ *   phone    34% — about 285px on a 390x844 screen, capped at 290px so it cannot
+ *                  keep growing on a taller handset. This is the tier the
  *                  complaint came from, and the one where a single-column card
- *                  is a large fraction of the screen.
+ *                  is a large fraction of the screen. The cap is the one part of
+ *                  this that is a pixel count rather than a percentage, and the
+ *                  reason is written out at PHONE_PRE_ROLL_MAX_PX.
  *
  *                  This is a ceiling, not a dial, and 34% sits just under it. A
  *                  reveal starts when the element is PRE_ROLL px below the fold
@@ -117,10 +121,48 @@ const EASE = [0.22, 1, 0.36, 1] as const
  *                  trigger no longer depends on the height of the container.
  */
 const PRE_ROLL_BY_TIER = {
-  phone: '0px 0px 34% 0px',
   tablet: '0px 0px 22% 0px',
   desktop: '0px 0px 10% 0px',
 } as const
+
+/*
+ * Phone is the same 34%, resolved to pixels so it can be given a ceiling.
+ *
+ * A percentage is the right shape for the small end of the range and the wrong
+ * shape for the large end. The ceiling above is a distance the scroll has to
+ * cover inside one 620ms entrance, and that distance does not get larger just
+ * because the phone is taller — a thumb drag on a 932px screen is the same
+ * ~460-500px/s it is on an 844px one. So a flat 34% quietly raises the speed
+ * the device demands as screens grow: 287px and ~460px/s at 390x844, but 317px
+ * and ~510px/s at 390x932, which is back over the line 45% was reverted for.
+ *
+ * `min(34% of viewport, 290px)` keeps both ends honest:
+ *
+ *   390x844   287px, under the cap and therefore untouched — the tuned
+ *             behaviour on the reference device is exactly what it was.
+ *   390x932   290px rather than 317px. Capped.
+ *   375x667   227px, well under. Short screens still scale down, which is the
+ *             direction that was already safe: less runway needs less speed.
+ *
+ * The effect is that every phone lands at or under 290 / 0.62 = ~470px/s, so the
+ * scroll speed a reveal needs stops being a function of how tall the phone is.
+ *
+ * Landscape falls out of the same expression: innerHeight is ~390 there, so the
+ * pre-roll shrinks with it instead of overhanging a short viewport.
+ *
+ * Only the phone tier is computed. Tablet and desktop stay as percentages —
+ * their pre-rolls are far too small to approach any ceiling (a tablet would need
+ * to be 1318px tall before 22% reached 290px), and their timing is out of scope.
+ */
+const PHONE_PRE_ROLL_FRACTION = 0.34
+const PHONE_PRE_ROLL_MAX_PX = 290
+
+function phonePreRollMargin(): string {
+  const px = Math.round(
+    Math.min(window.innerHeight * PHONE_PRE_ROLL_FRACTION, PHONE_PRE_ROLL_MAX_PX),
+  )
+  return `0px 0px ${px}px 0px`
+}
 
 /*
  * Read once and cached, not through `useMediaQuery`.
@@ -134,7 +176,8 @@ const PRE_ROLL_BY_TIER = {
  * A plain read is safe here because Framer only looks at `viewport.margin` when
  * it sets the observer up, at mount. Recomputing it on every render would
  * change nothing for an observer that already exists. The cache is dropped on
- * resize so that anything mounting after a rotation gets its new tier.
+ * resize so that anything mounting after a rotation gets its new tier — which
+ * now carries the phone tier's height too, since that one resolves to pixels.
  */
 let cachedPreRoll: string | null = null
 
@@ -155,7 +198,7 @@ export function preRollMargin(): string {
       ? PRE_ROLL_BY_TIER.desktop
       : window.matchMedia('(min-width: 768px)').matches
         ? PRE_ROLL_BY_TIER.tablet
-        : PRE_ROLL_BY_TIER.phone
+        : phonePreRollMargin()
   }
   return cachedPreRoll
 }
