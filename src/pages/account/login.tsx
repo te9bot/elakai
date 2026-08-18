@@ -306,7 +306,17 @@ export default function AccountLoginPage() {
             <button
               type="button"
               onClick={() => void forgot()}
-              className="rounded-control px-1 py-0.5 text-meta font-semibold text-ink-muted underline-offset-4 transition-colors hover:text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              /*
+               * `-my-1.5 py-2` rather than `py-0.5`: the tap area grows to
+               * about 35px while the negative margin gives the extra height
+               * back to the layout, so this row is the same size it was and the
+               * thumb has something to hit. At 23px it was under the 24px
+               * minimum in WCAG 2.5.8, and unlike "Create an account" below —
+               * which sits inside a sentence and is therefore exempt as an
+               * inline target — this is a standalone control with no exception
+               * to lean on.
+               */
+              className="-my-1.5 rounded-control px-1 py-2 text-meta font-semibold text-ink-muted underline-offset-4 transition-colors hover:text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               Forgot your password?
             </button>
