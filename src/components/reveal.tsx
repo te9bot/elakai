@@ -1,7 +1,7 @@
 import { m, type Variants } from 'framer-motion'
 
 import { useReducedMotion } from '@/lib/motion'
-import type { ReactNode } from 'react'
+import { Children, type ReactNode } from 'react'
 
 /**
  * Reveal primitives.
@@ -31,8 +31,44 @@ import type { ReactNode } from 'react'
 /** The house easing curve, shared with `ease-out` in tailwind.config.ts. */
 const EASE = [0.22, 1, 0.36, 1] as const
 
-/** Fire a little before the element is fully in view; never replay on scroll back. */
-const VIEWPORT = { once: true, amount: 0.2 } as const
+/*
+ * WHEN A REVEAL IS ALLOWED TO START.
+ *
+ * This used to be `{ once: true, amount: 0.2 }` and the comment above it
+ * claimed it fired "a little before the element is fully in view". It did not.
+ * `amount` is an IntersectionObserver threshold, so 0.2 means a fifth of the
+ * element had to be *inside* the viewport before anything moved. The reveal
+ * therefore always began after the reader could already see the thing that was
+ * about to move — which is the "it sat there, then caught up" complaint.
+ *
+ * It was worst on a phone, for a reason that is easy to miss on a desktop: the
+ * card grids are `sm:grid-cols-2 lg:grid-cols-3`, so on a narrow screen they
+ * collapse to one very tall column. `amount` is a fraction of the *observed
+ * element*, and for a stagger that element is the whole grid. A fifth of a
+ * three-row desktop grid is a sliver; a fifth of the same grid as an eight-card
+ * single column is most of a screen. Measured at 390x844, cards were starting
+ * their entrance 500-1000px above the top of the viewport.
+ *
+ * Two changes, and neither one touches what the animation looks like:
+ *
+ *   `amount: 0` — any part of the element counts, rather than a fraction of it.
+ *   This is what stops a tall container from holding its own children back.
+ *
+ *   `margin: PRE_ROLL` — a positive bottom rootMargin, which grows the
+ *   observer's root box downward so an element is called in view while it is
+ *   still below the fold. This is the pre-activation range: by the time the
+ *   card is actually on screen its entrance is already part-way through, so it
+ *   arrives moving instead of arriving and then starting.
+ *
+ * A percentage rather than a pixel count, so the head start scales with the
+ * device: about 210px of pre-roll on a 390x844 phone, about 250px on a laptop.
+ * At a brisk 1000px/s thumb flick that is roughly 200ms of runway, which is
+ * most of a 550ms entrance already spent before the card is visible.
+ *
+ * `once: true` is unchanged — a reveal still never replays on scroll back.
+ */
+const PRE_ROLL = '0px 0px 25% 0px'
+const VIEWPORT = { once: true, amount: 0, margin: PRE_ROLL } as const
 
 /* ------------------------------------------------------------------ */
 /* Entrance (on mount)                                                 */
@@ -188,7 +224,7 @@ export function Reveal({
       variants={buildVariants(motion, distance, duration, delay)}
       initial="hidden"
       whileInView="show"
-      viewport={{ once: true, amount }}
+      viewport={{ once: true, amount, margin: PRE_ROLL }}
     >
       {children}
     </m.div>
@@ -204,10 +240,30 @@ type StaggerTag = 'div' | 'ul' | 'ol' | 'nav'
 const STAGGER_TAGS = { div: m.div, ul: m.ul, ol: m.ol, nav: m.nav } as const
 const ITEM_TAGS = { div: m.div, li: m.li } as const
 
-const staggerContainer = (gap: number, delay: number): Variants => ({
-  hidden: {},
-  show: { transition: { staggerChildren: gap, delayChildren: delay } },
-})
+/*
+ * The longest a group is allowed to take to walk all of its children.
+ *
+ * `staggerChildren` is a wall-clock gap, and it has nothing to do with where
+ * the page has scrolled to. Eight children at 0.06s is a 420ms tail, and a
+ * thumb flick moves the page about 1000px/s — so the last card in that group
+ * began its entrance roughly 400px after its own arrival, which is the exact
+ * shape of "it waited and then caught up". The pre-roll above buys back about
+ * 200ms of that; this caps the rest.
+ *
+ * Small groups are untouched: three cards at 0.09s is 180ms, already inside the
+ * budget, so the rhythm the design was tuned with survives. Only the long rails
+ * get compressed, and they are the ones that were visibly late.
+ */
+const MAX_STAGGER_TAIL = 0.26
+
+const staggerContainer = (gap: number, delay: number, count: number): Variants => {
+  const steps = Math.max(count - 1, 1)
+  const staggerChildren = Math.min(gap, MAX_STAGGER_TAIL / steps)
+  return {
+    hidden: {},
+    show: { transition: { staggerChildren, delayChildren: delay } },
+  }
+}
 
 /**
  * Parent of a set of `StaggerItem`s. Renders as whatever tag the layout needs
@@ -219,8 +275,8 @@ export function Stagger({
   className,
   as = 'div',
   gap = 0.075,
-  delay = 0.05,
-  amount = 0.12,
+  delay = 0,
+  amount = VIEWPORT.amount,
   ...rest
 }: {
   children: ReactNode
@@ -247,10 +303,10 @@ export function Stagger({
   return (
     <Tag
       className={className}
-      variants={staggerContainer(gap, delay)}
+      variants={staggerContainer(gap, delay, Children.count(children))}
       initial="hidden"
       whileInView="show"
-      viewport={{ once: true, amount }}
+      viewport={{ once: true, amount, margin: PRE_ROLL }}
       {...rest}
     >
       {children}
