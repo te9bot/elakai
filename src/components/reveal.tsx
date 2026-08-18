@@ -67,8 +67,79 @@ const EASE = [0.22, 1, 0.36, 1] as const
  *
  * `once: true` is unchanged — a reveal still never replays on scroll back.
  */
-const PRE_ROLL = '0px 0px 25% 0px'
-const VIEWPORT = { once: true, amount: 0, margin: PRE_ROLL } as const
+/*
+ * HOW MUCH RUNWAY EACH DEVICE TIER GETS.
+ *
+ * One value for every screen was the wrong shape. The problem this solves is
+ * proportional to how tall the cards are relative to the viewport, and that is a
+ * different number on a phone than on a desktop — the same grid is one tall
+ * column on one and three short rows on the other.
+ *
+ * Percentages rather than pixel counts, so each tier still scales with the
+ * actual window instead of assuming a canonical device size.
+ *
+ *   phone    34% — about 287px on a 390x844 screen. This is the tier the
+ *                  complaint came from, and the one where a single-column card
+ *                  is a large fraction of the screen. At a ~1000px/s thumb
+ *                  flick that is ~287ms of a 550ms entrance already spent
+ *                  before the card is visible, so it arrives mid-flight.
+ *
+ *   tablet   22% — about 225px at 768x1024. Two-column grids, so the cards are
+ *                  shorter and less runway is needed to hide the start.
+ *
+ *   desktop  10% — about 90px at 900px tall, and deliberately the smallest.
+ *                  Desktop was never the complaint, and the brief is to leave
+ *                  its timing alone. The old `amount: 0.2` on a three-row grid
+ *                  worked out to roughly this much anyway, so the moment a
+ *                  reveal begins on a large screen is very close to where it
+ *                  has always been. What changes on desktop is only that the
+ *                  trigger no longer depends on the height of the container.
+ */
+const PRE_ROLL_BY_TIER = {
+  phone: '0px 0px 34% 0px',
+  tablet: '0px 0px 22% 0px',
+  desktop: '0px 0px 10% 0px',
+} as const
+
+/*
+ * Read once and cached, not through `useMediaQuery`.
+ *
+ * That hook is a `useState` plus a `useEffect` per call site, and it calls
+ * `setMatches` on mount — so routing this through it would add one matchMedia
+ * subscription and one extra render per reveal, and there are around thirty
+ * reveals on the home page alone. React state on the scroll-animation path is
+ * the thing being avoided, so it would be a strange place to introduce some.
+ *
+ * A plain read is safe here because Framer only looks at `viewport.margin` when
+ * it sets the observer up, at mount. Recomputing it on every render would
+ * change nothing for an observer that already exists. The cache is dropped on
+ * resize so that anything mounting after a rotation gets its new tier.
+ */
+let cachedPreRoll: string | null = null
+
+if (typeof window !== 'undefined') {
+  window.addEventListener(
+    'resize',
+    () => {
+      cachedPreRoll = null
+    },
+    { passive: true },
+  )
+}
+
+export function preRollMargin(): string {
+  if (typeof window === 'undefined' || !window.matchMedia) return PRE_ROLL_BY_TIER.desktop
+  if (cachedPreRoll === null) {
+    cachedPreRoll = window.matchMedia('(min-width: 1024px)').matches
+      ? PRE_ROLL_BY_TIER.desktop
+      : window.matchMedia('(min-width: 768px)').matches
+        ? PRE_ROLL_BY_TIER.tablet
+        : PRE_ROLL_BY_TIER.phone
+  }
+  return cachedPreRoll
+}
+
+const VIEWPORT = { once: true, amount: 0 } as const
 
 /* ------------------------------------------------------------------ */
 /* Entrance (on mount)                                                 */
@@ -224,7 +295,7 @@ export function Reveal({
       variants={buildVariants(motion, distance, duration, delay)}
       initial="hidden"
       whileInView="show"
-      viewport={{ once: true, amount, margin: PRE_ROLL }}
+      viewport={{ once: true, amount, margin: preRollMargin() }}
     >
       {children}
     </m.div>
@@ -306,7 +377,7 @@ export function Stagger({
       variants={staggerContainer(gap, delay, Children.count(children))}
       initial="hidden"
       whileInView="show"
-      viewport={{ once: true, amount, margin: PRE_ROLL }}
+      viewport={{ once: true, amount, margin: preRollMargin() }}
       {...rest}
     >
       {children}

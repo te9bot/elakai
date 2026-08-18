@@ -24,7 +24,7 @@ import { ListingsSection } from '@/components/listings/listings-section'
 import { InfiniteBand, InfiniteHorizontalTrack } from '@/components/infinite-track'
 import { HomeHero } from '@/components/home/hero'
 import { Parallax, ParallaxLayer, ParallaxScene } from '@/components/parallax'
-import { Reveal, Stagger, StaggerItem, REVEAL_EASE } from '@/components/reveal'
+import { Reveal, Stagger, StaggerItem, REVEAL_EASE, preRollMargin } from '@/components/reveal'
 import { Section, SectionHeader } from '@/components/layout/section'
 import { HEALTHCARE_IDS, UTILITY_IDS } from '@/data/categories'
 import { splitIntoRows } from '@/data/coverage'
@@ -317,7 +317,14 @@ function HowItWorks() {
               className="absolute left-[22px] right-6 top-[22px] hidden h-px origin-left bg-gradient-to-r from-primary/50 via-primary/25 to-transparent lg:block"
               initial={{ scaleX: 0 }}
               whileInView={{ scaleX: 1 }}
-              viewport={{ once: true, amount: 0.4 }}
+              /* The connector rule is the one reveal on this page that was
+                 still hand-rolled, and it had the strictest trigger of all:
+                 `amount: 0.4` with no pre-roll, so it waited for 40% of itself
+                 to be on screen. Routed through the same tier-aware pre-roll as
+                 every other reveal so the timing is consistent — see
+                 components/reveal.tsx. It is `lg:block`, so this only ever
+                 mattered on desktop. */
+              viewport={{ once: true, amount: 0, margin: preRollMargin() }}
               transition={{ duration: 0.9, ease: REVEAL_EASE, delay: 0.2 }}
             />
 
