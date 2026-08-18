@@ -394,9 +394,12 @@ function pointOnJourney(t: number): Point {
  */
 const FOCUS_RADIUS = 300
 
-/** How quickly the light catches the scroll. Slower than the parallax so it
- *  drifts rather than tracks, which is what makes it feel like a camera. */
-const FOCUS_CATCH_UP = 0.045
+/**
+ * How quickly the light catches the scroll, as the time for the remaining
+ * distance to halve. Slower than the parallax so it drifts rather than tracks,
+ * which is what makes it feel like a camera.
+ */
+const FOCUS_HALF_LIFE_MS = 230
 
 /* ------------------------------------------------------------------ */
 /* Component                                                           */
@@ -431,15 +434,30 @@ const LAYER_DEPTHS = [
 ] as const
 
 /**
- * How quickly a layer catches up with its target, per frame at 60fps.
+ * How quickly a layer catches up with its target, as the time for the remaining
+ * distance to halve.
  *
  * This replaces the `transition: transform 380ms cubic-bezier(0.22, 1, 0.36, 1)`
- * the layers used to carry. A lerp is not the same curve, but it is the same
- * *feel* — a fast start that eases into place — and unlike a CSS transition it
- * has no notion of restarting, so a continuous stream of scroll events produces
- * one continuous settle rather than a new 380ms animation every event.
+ * the layers used to carry. An exponential ease is not the same curve, but it is
+ * the same *feel* — a fast start that eases into place — and unlike a CSS
+ * transition it has no notion of restarting, so a continuous stream of scroll
+ * events produces one continuous settle rather than a new 380ms animation every
+ * event.
+ *
+ * A DURATION, NOT A PER-FRAME FRACTION
+ *
+ * This was `0.12 per frame`, which is only 0.12 per frame on the display it was
+ * written on. At 120Hz that ease ran twice as fast as at 60Hz, so the map
+ * tracked tightly on a desktop and drifted on a phone — the opposite of what
+ * was wanted, since the phone is where it most needs to feel immediate.
+ *
+ * The number is also tighter than the 90ms the old per-frame value worked out
+ * to at 60Hz. That is deliberate: lib/scroll.ts now hands this loop a value
+ * that has already been eased, and two eases in series read as lag. Shortening
+ * this one keeps the *combined* response about where it was while moving the
+ * softness upstream, where every scroll-linked layer shares it.
  */
-const CATCH_UP = 0.12
+const LAYER_HALF_LIFE_MS = 70
 
 /** Below half a pixel of remaining travel, nothing more is visible. */
 const SETTLED = 0.5
@@ -833,9 +851,27 @@ function KushtiaMapImpl({
     /** The last position written to the focus light, in whole SVG units. */
     let litAt = { x: Number.NaN, y: Number.NaN }
 
-    function draw() {
+    /**
+     * The frame clock for the eases below.
+     *
+     * Stamped by `wake()` as well as by each frame, so the first frame after
+     * the loop has been idle measures its own length rather than the length of
+     * the idle period — which would otherwise collapse the whole remaining
+     * distance in one step and show up as a jump.
+     */
+    let lastDraw = 0
+
+    /** The fraction of a remaining distance to close on a frame of `dt` ms. */
+    const ease = (dt: number, halfLife: number) => 1 - Math.pow(2, -dt / halfLife)
+
+    function draw(now: number) {
       running = true
       frame = requestAnimationFrame(draw)
+
+      // Clamped: after a long task or a hidden tab this would otherwise be
+      // hundreds of milliseconds and the ease would finish in a single step.
+      const dt = Math.min(now - lastDraw, 64)
+      lastDraw = now
 
       const dx = target.x - current.x
       const dy = target.y - current.y
@@ -859,12 +895,13 @@ function KushtiaMapImpl({
         return
       }
 
-      current.x += dx * CATCH_UP
-      current.y += dy * CATCH_UP
+      const layerStep = ease(dt, LAYER_HALF_LIFE_MS)
+      current.x += dx * layerStep
+      current.y += dy * layerStep
 
       // Eases slower than the parallax, so the light lags the page a little and
       // reads as something travelling rather than something pinned to scroll.
-      focus.current += df * FOCUS_CATCH_UP
+      focus.current += df * ease(dt, FOCUS_HALF_LIFE_MS)
       if (focusRef.current) {
         const p = pointOnJourney(focus.current)
         // Rounded to whole units — a third of a CSS pixel on a phone, less on a
@@ -905,6 +942,7 @@ function KushtiaMapImpl({
 
     function wake() {
       if (running) return
+      lastDraw = performance.now()
       // Hinted only while something is actually moving. A permanent
       // `will-change: transform` on seven full-viewport groups asks the
       // compositor to hold seven layers for the life of the page, which costs

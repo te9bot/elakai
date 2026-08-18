@@ -1,7 +1,7 @@
 import { Fragment, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MapPin, ShieldCheck } from 'lucide-react'
-import { m, useScroll, useTransform, type Variants } from 'framer-motion'
+import { m, useScroll, useSpring, useTransform, type Variants } from 'framer-motion'
 
 import { useReducedMotion } from '@/lib/motion'
 
@@ -155,9 +155,33 @@ export function HomeHero({ isPrecise }: { isPrecise: boolean }) {
   const isTablet = useIsTablet()
   const depth = reduced ? 0 : isDesktop ? 1 : isTablet ? 0.62 : 0.34
 
-  const { scrollYProgress } = useScroll({
+  const { scrollYProgress: heroProgress } = useScroll({
     target: heroRef,
     offset: ['start start', 'end start'],
+  })
+
+  /*
+   * The same ease lib/scroll.ts gives the map, the glow and the header.
+   *
+   * Without it the site runs on two clocks. The map behind this section takes
+   * its position from lib/scroll.ts, which eases toward the browser's scroll
+   * rather than tracking it exactly; this progress value comes from Framer's own
+   * scroll listener and arrives raw. The hero's foreground would then lead the
+   * backdrop it is supposed to be parallaxing against — layers moving at
+   * different *times* instead of different *rates*, which is the one thing that
+   * reads as breakage rather than as depth.
+   *
+   * Critically damped deliberately. A spring that overshoots would carry the
+   * copy past its resting offset and back, and on a scroll-linked transform that
+   * reads as a wobble, not as softness. The stiffness is high enough that the
+   * hero never feels detached from the wheel — the softness is meant to be felt
+   * and not waited for.
+   */
+  const scrollYProgress = useSpring(heroProgress, {
+    stiffness: 260,
+    damping: 34,
+    mass: 1,
+    restDelta: 0.0001,
   })
   // The backdrop's own drift now belongs to the shell's map, which parallaxes
   // its layers against the window rather than against this section — so the
