@@ -85,11 +85,27 @@ const subscribers = new Set<ScrollSubscriber>()
  * trails the thumb, which is the exact complaint the previous engine earned:
  * motion that lags behind the finger reads as lag, not as smoothness.
  *
- * 55ms puts the layers ~98% of the way there in about a fifth of a second.
+ * 68ms puts the layers ~98% of the way there in about a quarter of a second.
  * Fast enough that nothing feels detached from the input, slow enough that a
  * single wheel notch glides instead of jumping.
+ *
+ * IT WENT UP FROM 55, AND THE TOTAL SMOOTHING STILL WENT DOWN.
+ *
+ * This was not the only ease in the chain. components/home/kushtia-map.tsx took
+ * the value published here and eased it a second time on a 70ms half-life
+ * before writing a transform, so the backdrop was running two exponential eases
+ * in series — roughly 125ms of combined lag, with the soft start that composing
+ * two of them produces. On a wheel, where input arrives as a few large discrete
+ * notches, a backdrop that sets off late and arrives late does not read as
+ * smooth; it reads as stiff, which is exactly how it was described.
+ *
+ * The second ease is gone. This one is now the only one on the path, so it can
+ * afford to be a little softer than 55 and still leave the backdrop
+ * substantially more responsive than it was — about half the total lag. If the
+ * glide ever needs retuning, this is the one number to turn, and there should
+ * continue to be only one.
  */
-const HALF_LIFE_MS = 55
+const HALF_LIFE_MS = 68
 
 /**
  * Below this, the ease is over. A twentieth of a pixel is far under anything

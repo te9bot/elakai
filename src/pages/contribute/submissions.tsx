@@ -99,7 +99,7 @@ export default function ContributeSubmissionsPage() {
       ) : all.length === 0 ? (
         <EmptyState
           title="You have not submitted anything yet"
-          body="Add a pharmacy, a service, a rental or an emergency contact. An administrator checks it, and you get 50 points when it is approved."
+          body="Add a pharmacy, a service, a rental or an emergency contact. An administrator checks it, and you get 50 RP Points when it is approved."
           actionLabel="Submit information"
           actionTo="/contribute/submit"
         />

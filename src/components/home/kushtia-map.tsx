@@ -1,9 +1,10 @@
 import { memo, useEffect, useMemo, useRef } from 'react'
 import { AREA_MAP } from '@/data/categories'
 import type { AreaId } from '@/data/types'
+import { useMediaQuery } from '@/hooks/use-media-query'
 import { useI18n } from '@/lib/i18n'
 import { useReducedMotion } from '@/lib/motion'
-import { currentScrollY, onScrollFrame } from '@/lib/scroll'
+import { onScrollFrame } from '@/lib/scroll'
 import { cn } from '@/lib/utils'
 
 /* ==========================================================================
@@ -40,11 +41,21 @@ import { cn } from '@/lib/utils'
  *
  * MOTION
  *
- * Eight layers at increasing depth — grid, urban blocks, river, roads, dashed
- * routes, glow, markers and labels — offset by both pointer position and scroll
- * position, each scaled by its own depth. The grid barely moves; the labels move
- * most. Everything is a `translate3d`, so the whole backdrop stays on the
- * compositor and scrolling never triggers layout.
+ * Five planes at increasing depth — the far field, settlement and water, the
+ * road network, the focus light and the labels — offset by both pointer
+ * position and scroll position, each scaled by its own travel. The far field
+ * barely moves; the labels move about three and a half times as far.
+ *
+ * Each plane is an absolutely-positioned HTML div holding one `<svg>`, and the
+ * transform goes on the div rather than on a group inside the artwork. That
+ * distinction is the whole performance story and it is written out in full
+ * above `LAYERS` further down: an HTML element can be handed its own compositor
+ * layer and moved, an SVG `<g>` cannot and has to be re-rasterised instead.
+ *
+ * The scroll half is a proportion of the *document*, not a distance, so the
+ * backdrop keeps moving on the last screen of a long page as well as the first
+ * — it is one continuous geographic surface under the whole site, and it should
+ * behave like one.
  *
  * Whether any of it runs is `lib/motion.ts`'s decision, not this file's — see
  * the note in the effect below.
@@ -401,78 +412,154 @@ const FOCUS_RADIUS = 300
  */
 const FOCUS_HALF_LIFE_MS = 230
 
+
 /* ------------------------------------------------------------------ */
 /* Component                                                           */
 /* ------------------------------------------------------------------ */
 
+/* ==========================================================================
+ * THE PARALLAX, AND THE THREE THINGS THAT WERE WRONG WITH IT
+ *
+ * The choreography here is the one that was always intended — layers at
+ * different depths, offset by scroll and pointer, combined into one transform.
+ * What changed is where the transform lands and how far it runs.
+ *
+ * 1. IT USED TO STOP AFTER THE FIRST SCREEN AND A HALF.
+ *
+ * The scroll contribution was `min(scrollY, 1400) / 1400`. Past 1400px the
+ * numerator stopped growing, so every layer froze and stayed frozen. The home
+ * page is several times that tall, so for most of the scroll there was no
+ * parallax at all — which is exactly why the effect read as "too subtle". It
+ * was not subtle, it was absent for the majority of the page.
+ *
+ * The clamp existed for a real reason: an unbounded rate would slide the labels
+ * clear of the markers they belong to on a long page. The fix is to bound the
+ * *total travel* instead of the *scroll distance*. Progress is now the whole
+ * document, 0 to 1, mapped onto a fixed per-layer travel in pixels. A layer
+ * moves the same total distance whether the page is three screens or thirty,
+ * and it is still moving on the last screen — which is the "continuous
+ * geographic environment" the backdrop is supposed to be.
+ *
+ * 2. THE TRANSFORM WAS ON AN SVG GROUP, WHICH IS NOT COMPOSITED.
+ *
+ * This is the mobile stutter, and it is a property of SVG rather than of this
+ * code. A transform on an HTML element with `will-change: transform` gets its
+ * own compositor layer: the browser rasterises it once and then *moves* it, and
+ * the move costs nothing on the main thread. A transform on an SVG `<g>` cannot
+ * be handed a layer. The browser has to re-rasterise the region the group
+ * covers — and these groups cover a `fixed inset-0` backdrop, so every write
+ * re-rastered the entire viewport, at device pixel ratio 3 on a phone.
+ *
+ * The previous fix for that was to write less often (`writeStep` quantised the
+ * writes to roughly one frame in four on a phone). That treats the symptom: it
+ * makes the motion coarse in order to make it affordable, so the parallax got
+ * choppier on exactly the devices where it was already worst.
+ *
+ * The artwork is now split across a small number of absolutely-positioned HTML
+ * layers, one `<svg>` each, sharing a viewBox and `preserveAspectRatio` so they
+ * register pixel-exactly. The transform goes on the div. Nothing re-rasterises,
+ * the quantisation is gone, and every frame moves.
+ *
+ * 3. TWO EASES IN SERIES READ AS LAG, NOT AS SMOOTHNESS.
+ *
+ * lib/scroll.ts already hands out a scroll position eased on a 55ms half-life.
+ * This file then eased that value again on a 70ms half-life before writing it.
+ * Composing two exponential eases does not give a smoother curve, it gives a
+ * slower one with a soft start — the backdrop set off late and arrived late, and
+ * on a wheel, where input is a few large discrete notches, late reads as stiff.
+ *
+ * There is one ease now and it is upstream, shared by every scroll-linked layer
+ * on the site. The pointer keeps an ease of its own because nothing eases it
+ * first, and it is two numbers rather than a document position.
+ *
+ * WHY NOT A SMOOTH-SCROLL ENGINE. Because the page must not wait for
+ * JavaScript — see the note at the top of lib/scroll.ts and the two commits
+ * that added Lenis and then took it out again with measurements. The scroll
+ * stays the browser's. What is eased here is the backdrop, and a backdrop that
+ * glides while the page moves crisply is what actually reads as fluid.
+ * ========================================================================== */
+
 /**
- * Each layer's depth, back to front. The grid barely moves; the labels move
- * most. Fixed and named rather than passed per call site, because the scroll
- * transforms below are hooks and must be created unconditionally.
+ * The layers, back to front, and how far each travels.
+ *
+ * `travel` is the total vertical distance in CSS pixels the layer moves across
+ * the *entire* document, and it is the whole depth vocabulary: the far layer
+ * barely shifts, the labels move about three and a half times as far, and the
+ * eye reads the difference between them as distance. Layers rise as the page is
+ * scrolled down, lagging the content, which is what puts them behind it.
+ *
+ * These are pixels rather than the old unit-less depth multipliers because the
+ * transform now lands on an HTML element instead of inside the SVG's user
+ * space, so a number here is the number of pixels that actually appear.
+ *
+ * `point` is the maximum pointer displacement at the very edge of the viewport,
+ * also in pixels. Deliberately an order of magnitude smaller than `travel`: the
+ * pointer is meant to give the backdrop a little life as the cursor crosses it,
+ * not to let the reader drag the district around.
+ *
+ * Paint order is NOT depth order — the focus light is painted above the roads
+ * so it lights them, but it sits at a middle travel so it drifts with the
+ * geography it is lighting rather than with the labels.
  */
-const SCROLL_SPAN = 1400
-
-const DEPTH = {
-  grid: 1,
-  blocks: 3,
-  glow: 4,
-  river: 6,
-  roads: 9,
-  routes: 11,
-  markers: 14,
-} as const
-
-/** The seven layers the loop drives, in the order their refs are stored. */
-const LAYER_DEPTHS = [
-  DEPTH.grid,
-  DEPTH.blocks,
-  DEPTH.river,
-  DEPTH.roads,
-  DEPTH.routes,
-  DEPTH.glow,
-  DEPTH.markers,
+const LAYERS = [
+  { key: 'far', travel: 34, point: 3 },
+  { key: 'mid', travel: 58, point: 6 },
+  { key: 'near', travel: 88, point: 9 },
+  { key: 'glow', travel: 70, point: 7 },
+  { key: 'top', travel: 120, point: 13 },
 ] as const
 
+/* ==========================================================================
+ * THE MARGIN, AND WHY IT IS NOT SIMPLY AN OVERSIZED BOX
+ *
+ * A layer that translates has to have artwork past the edge of the screen or
+ * its own edge scrolls into view. The obvious way to buy that is to make the
+ * element bigger than the viewport — `inset: -6%` and be done.
+ *
+ * It does not work here, and the reason is `preserveAspectRatio="slice"`.
+ * Slice scales the artwork to *cover* its box: `max(boxW / viewBoxW, boxH /
+ * viewBoxH)`. Grow the box and the scale grows with it, so an oversized
+ * container does not reveal more map — it magnifies the same map and crops
+ * harder. A first cut at this used a 160px inset and silently zoomed the
+ * district by a third, which is a redesign of the composition rather than a
+ * margin.
+ *
+ * The viewBox has to grow by the same ratio as the box. Then the two changes
+ * cancel in the scale expression exactly:
+ *
+ *     max(1.12 W / 1344, 1.12 H / 784)  ==  max(W / 1200, H / 700)
+ *
+ * and because the padded viewBox keeps the same centre — (600, 350) before and
+ * after — the framing is pixel-identical to what it was, with 6% of the
+ * viewport's worth of extra artwork on every side to translate into.
+ *
+ * WHAT THE MARGIN ACTUALLY HAS TO COVER is smaller than it looks. Only the far
+ * layer carries a full-bleed fill (the grid); settlement, water, roads, the
+ * light and the labels are all sparse artwork, where a translation moves marks
+ * around and there is no edge to expose. So the number to beat is the far
+ * layer's own travel — 34px plus 3px of pointer — not the 120px the labels
+ * travel. 6% of the shortest desktop viewport this runs on is ~46px, and the
+ * container underneath is painted in the field colour regardless, so nothing
+ * can show through even if a layer did run out.
+ * ========================================================================== */
+
+const PAD = 0.06
+
+const VIEW_BOX = [
+  -VIEW.w * PAD,
+  -VIEW.h * PAD,
+  VIEW.w * (1 + PAD * 2),
+  VIEW.h * (1 + PAD * 2),
+].join(' ')
+
 /**
- * How quickly a layer catches up with its target, as the time for the remaining
- * distance to halve.
+ * How much of the parallax this viewport gets.
  *
- * This replaces the `transition: transform 380ms cubic-bezier(0.22, 1, 0.36, 1)`
- * the layers used to carry. An exponential ease is not the same curve, but it is
- * the same *feel* — a fast start that eases into place — and unlike a CSS
- * transition it has no notion of restarting, so a continuous stream of scroll
- * events produces one continuous settle rather than a new 380ms animation every
- * event.
- *
- * A DURATION, NOT A PER-FRAME FRACTION
- *
- * This was `0.12 per frame`, which is only 0.12 per frame on the display it was
- * written on. At 120Hz that ease ran twice as fast as at 60Hz, so the map
- * tracked tightly on a desktop and drifted on a phone — the opposite of what
- * was wanted, since the phone is where it most needs to feel immediate.
- *
- * The number is also tighter than the 90ms the old per-frame value worked out
- * to at 60Hz. That is deliberate: lib/scroll.ts now hands this loop a value
- * that has already been eased, and two eases in series read as lag. Shortening
- * this one keeps the *combined* response about where it was while moving the
- * softness upstream, where every scroll-linked layer shares it.
- */
-const LAYER_HALF_LIFE_MS = 70
-
-/** Below half a pixel of remaining travel, nothing more is visible. */
-const SETTLED = 0.5
-
-/** The deepest layer, and therefore the one whose displacement is largest. */
-const MAX_DEPTH = Math.max(...LAYER_DEPTHS)
-
-/**
- * How much of the scroll parallax this viewport gets.
- *
- * The same tiering as `useDepth` in lib/parallax.ts, and the same reasoning:
- * these distances were authored against a 1440px stage, and replaying them at
- * full strength on a 360px screen slides the labels much further across the
- * artwork than the composition wants. Every layer is scaled by the same number,
- * so the ratios between them — which is what the eye reads as depth — are
+ * Same tiering as `useDepth` in lib/parallax.ts and the same reasoning: the
+ * distances above are authored against a desktop stage, and replaying them at
+ * full strength on a 360px screen slides the labels further across the artwork
+ * than the composition wants. Every layer is scaled by the same number, so the
+ * ratios between them — which is the part the eye reads as depth — are
  * untouched. Kept here rather than imported because this runs inside an effect,
  * not a render.
  */
@@ -484,35 +571,105 @@ function depthTier(): number {
 }
 
 /**
- * The smallest change worth writing to the layers, in SVG user units.
+ * How quickly the pointer tilt catches the cursor, as the time for the
+ * remaining distance to halve.
  *
- * WHY THIS EXISTS, AND WHY IT IS THE MOBILE SCROLL FIX
- *
- * A transform on an SVG `<g>` is not composited the way one on an HTML element
- * is. The browser cannot hand the group its own layer and slide it; it has to
- * re-rasterise the region the group covers. These seven groups each cover the
- * whole artwork, and the artwork is a `fixed inset-0` backdrop, so *any* write
- * here re-rasterises the full viewport — at whatever the device pixel ratio is,
- * which on a phone is 3.
- *
- * Measured, headless Chrome at 390x844 / DPR 3 / 4x CPU throttle, scrolling the
- * home page end to end: 42 frames over 20ms with these writes happening every
- * frame, 22 with the writes frozen, 16 with the whole backdrop removed. The
- * per-frame transform was the single largest source of dropped frames on the
- * page — larger than every `backdrop-filter` on the site put together, which
- * cost 2 frames.
- *
- * So the writes are quantised rather than removed. The step is the value that
- * moves the *deepest* layer by about one CSS pixel: below that nothing is on
- * screen to see, and above it the motion is exactly what it was. On a 390px
- * phone that is a write roughly every fourth frame instead of every frame; on a
- * 1440px desktop the step works out at 0.06 units, which no real frame ever
- * fails to clear, so desktop keeps writing every frame as it always did.
+ * Only the pointer. The scroll position arrives from lib/scroll.ts already
+ * eased and is written straight through — easing it twice is what made the
+ * backdrop feel like it was dragging behind the wheel.
  */
-function writeStep(): number {
-  const width = typeof window === 'undefined' ? VIEW.w : window.innerWidth || VIEW.w
-  return VIEW.w / width / MAX_DEPTH
-}
+const POINTER_HALF_LIFE_MS = 90
+
+/** Below a twentieth of a pixel there is nothing left to draw. */
+const SETTLED_PX = 0.05
+
+/**
+ * The same threshold expressed in the pointer's own units, which are not
+ * pixels.
+ *
+ * `pointer` and `eased` hold a normalised position, -1 to 1 from the centre of
+ * the viewport; what reaches the screen is that number times a layer's `point`
+ * value. Comparing the normalised figure directly against a pixel constant is a
+ * unit error, and it is not a harmless one — at the deepest layer's 13px it
+ * made the write threshold about two thirds of a pixel, so the pointer parallax
+ * advanced in visible steps instead of gliding.
+ *
+ * Dividing by the largest `point` converts the pixel budget into the units
+ * actually being compared. It uses the largest rather than each layer's own so
+ * there is a single threshold for the whole write — and erring toward the
+ * deepest layer errs toward painting slightly more often, which is the safe
+ * direction. `tier` only ever scales this down, so ignoring it here keeps the
+ * threshold conservative at every breakpoint.
+ */
+const POINTER_EPSILON = SETTLED_PX / Math.max(...LAYERS.map((l) => l.point))
+
+/* ==========================================================================
+ * SCROLL VELOCITY
+ *
+ * How hard the reader is scrolling, and the two things it changes: the map
+ * leans a little further in the direction of travel, and the focus light comes
+ * up slightly. Both settle back the moment scrolling stops.
+ *
+ * IT COSTS NO NEW INPUT. Velocity is the frame-over-frame change in the
+ * progress value the loop already has, divided by the frame's own elapsed time.
+ * There is no wheel listener, no touch listener and no second subscription —
+ * adding one would be a second opinion about the scroll position, and this file
+ * is deliberately downstream of lib/scroll.ts's single answer.
+ *
+ * IT DECAYS BY CONSTRUCTION, which is what makes "settles when scrolling stops"
+ * fall out rather than needing a timer. When the reader stops, `progress` stops
+ * changing, the measured velocity is zero, and the ease walks the smoothed
+ * value down to zero on its own. Nothing has to detect the end of a gesture.
+ * ========================================================================== */
+
+/**
+ * The velocity treated as "full tilt", in fractions of the document per second.
+ *
+ * A brisk wheel scroll on the home page moves through a few percent of the
+ * document in a frame; 0.35/sec is a hard flick. Everything above it clamps, so
+ * a trackpad slam and a scrollbar drag produce the same maximum lean instead of
+ * launching the artwork off the screen — which is the "never allow runaway
+ * transforms" the brief asks for, expressed as a ceiling rather than a check.
+ */
+const VELOCITY_FULL = 0.35
+
+/**
+ * How quickly the smoothed velocity catches the measured one.
+ *
+ * Slower than the pointer and much slower than the scroll itself. Velocity is
+ * the noisiest signal on the page — one long frame doubles it — and a lean that
+ * tracked it exactly would flicker. At 160ms a flick takes about a third of a
+ * second to reach full lean and about as long to let go, which reads as weight.
+ */
+const VELOCITY_HALF_LIFE_MS = 160
+
+/**
+ * How far the deepest layer leans at full velocity, in pixels.
+ *
+ * Small on purpose, and deliberately less than a sixth of that layer's scroll
+ * travel: this is a lean, not a second parallax. Shallower layers take a
+ * proportion of it via their own travel, so the lean keeps the depth ordering
+ * the rest of the system already establishes instead of inventing a new one.
+ */
+const VELOCITY_PULL = 16
+
+/** The deepest travel, used to distribute the lean across the layers. */
+const DEEPEST_TRAVEL = Math.max(...LAYERS.map((l) => l.travel))
+
+/**
+ * The focus light's resting and full-tilt opacity.
+ *
+ * The brief asks for "soft ambient light" that lifts while the reader is moving
+ * and softens when they stop, and explicitly not for a neon glow. So the light
+ * *rests* dimmed and returns to its authored strength under motion, rather than
+ * over-brightening past it — the gradient's own alpha stays the ceiling, and
+ * scrolling can only ever restore it, never exceed it.
+ */
+const GLOW_RESTING = 0.74
+const GLOW_ACTIVE = 1
+
+/** Which layer the light is, for the one opacity write below. */
+const GLOW_LAYER = LAYERS.findIndex((l) => l.key === 'glow')
 
 /**
  * How the map is being used, which is the only thing that differs between its
@@ -522,7 +679,7 @@ function writeStep(): number {
  *              tilt and scroll position, exactly as it always has.
  *
  * 'panel'    — the left half of the contributor entrance. There is no scroll
- *              there and often no pointer over it, so the same eight layers are
+ *              there and often no pointer over it, so the same layers are
  *              driven by a clock instead, and the readability veil lifts because
  *              nothing is set over the map on that side.
  *
@@ -546,19 +703,19 @@ export type KushtiaMapVariant = 'backdrop' | 'panel'
  *
  * So each layer runs a long, slow sine instead. The periods below are all
  * different and none divides evenly into another, so the layers never realign
- * and the composition never returns to a pose you just watched — the same
- * trick the brand panel's planes use. At these periods a full traverse takes
- * over a minute, which reads as continuous travel rather than as something
- * swinging back and forth, and it has no reset point at all because a sine has
- * nowhere to jump.
+ * and the composition never returns to a pose you just watched. At these
+ * periods a full traverse takes over a minute, which reads as continuous travel
+ * rather than as something swinging back and forth, and it has no reset point
+ * at all because a sine has nowhere to jump.
  *
  * X and Y run on different periods so a layer traces a slow Lissajous rather
  * than a diagonal line.
  */
-const DRIFT_SECONDS = [67, 59, 53, 47, 43, 61, 37] as const
+const DRIFT_SECONDS = [67, 59, 53, 47, 43] as const
 
-/** Pixels of travel per unit of depth. The grid moves ~5px, the labels ~70. */
-const DRIFT_AMPLITUDE = 5
+/** A fraction of the layer's scroll travel, so the drift keeps the same depth
+ *  ordering the backdrop has rather than inventing a second one. */
+const DRIFT_RATIO = 0.28
 
 function KushtiaMapImpl({
   className,
@@ -570,10 +727,36 @@ function KushtiaMapImpl({
   const { L } = useI18n()
   const reduced = useReducedMotion()
   const ref = useRef<HTMLDivElement>(null)
-  const layerRefs = useRef<(SVGGElement | null)[]>([])
+  const stageRef = useRef<HTMLDivElement>(null)
+  const layerRefs = useRef<(HTMLDivElement | null)[]>([])
   const focusRef = useRef<SVGGElement | null>(null)
 
   const panel = variant === 'panel'
+
+  /*
+   * Whether the layers move independently or as one sheet.
+   *
+   * THIS IS THE MOBILE SCROLL BUDGET, AND IT IS ABOUT FILL RATE RATHER THAN
+   * ABOUT THE TRANSFORMS.
+   *
+   * Promoting the five layers is what makes the transforms free, but it also
+   * asks the compositor to hold five full-viewport textures and blend all five
+   * every frame. On a phone at device pixel ratio 3 that is both real memory
+   * and real overdraw, on the weakest GPU the site runs on — and it buys depth
+   * separation measured in a few tens of pixels, on the screen where the
+   * separation is scaled down to 0.36 anyway and hardest to see.
+   *
+   * So a phone moves the whole stage as a single promoted layer: one texture,
+   * one transform, no overdraw beyond what the artwork already costs, and the
+   * map still drifts against the content. Tablets and desktops, which have the
+   * fill rate to spare and the screen size to show the effect, get the real
+   * thing.
+   *
+   * A hook rather than a `matchMedia` read inside the effect, so crossing the
+   * breakpoint tears the old configuration down and builds the new one through
+   * React's own cleanup instead of leaving a half-configured loop behind.
+   */
+  const layered = useMediaQuery('(min-width: 768px)')
 
   /*
    * The focus light, placed but not animated.
@@ -625,17 +808,14 @@ function KushtiaMapImpl({
       elapsed = now - base
       const t = elapsed / 1000
 
-      // Seven writes, no reads — the same discipline as the backdrop loop, for
-      // the same reason: transforms on an SVG group stay on the compositor as
-      // long as nothing asks the browser to measure in between.
+      // Five writes, no reads. Every one lands on a promoted HTML layer, so
+      // this is five compositor moves rather than five rasterisations.
       for (let i = 0; i < nodes.length; i++) {
         const node = nodes[i]
         if (!node) continue
-        const depth = LAYER_DEPTHS[i]
-        const period = DRIFT_SECONDS[i] ?? 51
-        const amp = depth * DRIFT_AMPLITUDE
-        const x = Math.sin((t / period) * Math.PI * 2) * amp
-        const y = Math.sin((t / (period * 1.37)) * Math.PI * 2 + i) * amp * 0.55
+        const amp = LAYERS[i].travel * DRIFT_RATIO
+        const x = Math.sin((t / DRIFT_SECONDS[i]) * Math.PI * 2) * amp
+        const y = Math.sin((t / (DRIFT_SECONDS[i] * 1.37)) * Math.PI * 2 + i) * amp * 0.55
         node.style.transform = `translate3d(${x}px, ${y}px, 0)`
       }
 
@@ -658,24 +838,12 @@ function KushtiaMapImpl({
     /*
      * ONE LOOP, AND IT ONLY RUNS WHEN IT IS EARNING ITS KEEP.
      *
-     * This started unconditionally on mount and never stopped. On the auth page
-     * that is the worst possible timing: the map is the heaviest thing in the
-     * tree — a few hundred paths since the district was filled in — and it was
-     * competing with React's first commit and with Supabase's session restore
-     * for the same main thread, on the one screen whose entire job is to accept
-     * a password. It also kept running behind the contributor dashboard after
-     * the form navigated away.
+     * It does not start until the browser is idle, it stops when the panel is
+     * off-screen, and it stops when the tab is hidden. The login form is
+     * interactive first; the map arrives a moment later and nobody is waiting
+     * on it.
      *
-     * Three things fix that, in order of how much they matter:
-     *
-     *   1. It does not start until the browser is idle. The login form is
-     *      interactive first; the map arrives a moment later and nobody is
-     *      waiting on it. `requestIdleCallback` where it exists, a short
-     *      timeout where it does not (Safari).
-     *   2. It stops when the panel is off-screen, via IntersectionObserver.
-     *   3. It stops when the tab is hidden, which it already did.
-     *
-     * `start` is captured when the loop actually begins rather than at mount,
+     * `base` is re-stamped when the loop actually begins rather than at mount,
      * so a deferred or paused start does not make the light jump to wherever
      * the clock had wandered while nothing was drawing.
      */
@@ -685,7 +853,7 @@ function KushtiaMapImpl({
     function play() {
       if (running || !visible || document.visibilityState !== 'visible') return
       running = true
-      // Hinted only while something is actually moving. Seven promoted layers
+      // Hinted only while something is actually moving. Five promoted layers
       // held for the life of the page is real memory on a cheap phone.
       for (const node of nodes) node?.style.setProperty('will-change', 'transform')
       base = performance.now() - elapsed
@@ -733,91 +901,105 @@ function KushtiaMapImpl({
   }, [panel, reduced])
 
   useEffect(() => {
-    // The backdrop's own driver. Untouched, and inert in the panel variant.
+    // The backdrop's own driver. Untouched in spirit, and inert in the panel
+    // variant.
     if (panel) return
 
     // Through the project's seam, not `matchMedia` directly.
     //
     // `lib/motion.ts` is the site's single answer on reduced motion, and it
-    // exists precisely so no component holds a second opinion. Querying the
-    // media feature here did exactly that: on a machine with the OS setting
-    // enabled the hero kept animating while this backdrop sat frozen behind it,
-    // which is neither the accessible behaviour nor the intended one. Flipping
-    // that one function turns this off along with everything else.
+    // exists precisely so no component holds a second opinion. Flipping that
+    // one function turns this off along with everything else.
     if (reduced) return
 
     const nodes = layerRefs.current
-    if (!nodes.length) return
+    const stage = stageRef.current
+    // Which elements this run actually drives. On a phone that is the single
+    // stage; everywhere else it is the five layers. One array either way, so
+    // the loop below has no branch in it.
+    const driven: (HTMLElement | null)[] = layered ? nodes : [stage]
+    if (!driven.length) return
 
     // Not a motion preference but a capability check, so it stays local: a
     // coarse pointer has no hover position to track, and the listener would
     // cost work and never move anything. Scroll still applies on touch.
     const fine = window.matchMedia('(pointer: fine)').matches
 
-    // Where each layer is, and where it is heading. Plain arrays rather than
-    // state: nothing here should ever cause React to do anything.
-    const current = { x: 0, y: 0 }
-    const target = { x: 0, y: 0 }
+    /*
+     * How far through the document the reader is, 0 to 1. The one number the
+     * whole backdrop is a function of.
+     *
+     * This replaced a clamp at 1400px of scroll — see the note above `LAYERS`.
+     * Because it is a proportion rather than a distance, the travel below is
+     * bounded no matter how long the page is, while still running the entire
+     * length of it.
+     */
+    let progress = 0
+
+    /**
+     * The smoothed, clamped scroll velocity, -1 to 1.
+     *
+     * Negative is scrolling up and positive is scrolling down, so the lean in
+     * `paint` reverses on its own when the reader turns around — there is no
+     * direction flag anywhere, and therefore nothing that can be left pointing
+     * the wrong way at the moment the gesture changes.
+     */
+    let velocity = 0
+    /** Where `progress` was on the previous frame, to difference against. */
+    let lastProgress = 0
 
     /*
-     * The focus light's position along the journey, 0 at Daulatpur and 1 at
-     * Khoksa, held separately from the parallax so it can ease at its own rate.
-     *
-     * Read from the scroll value this component is *already* subscribed to.
-     * Nothing here adds a listener or touches the wheel: lib/scroll.ts hands it
-     * the browser's own `scrollY`, once per frame, through the `onScrollFrame`
-     * callback below.
+     * The pointer, tracked separately and eased on its own, because it arrives
+     * from a different event and has to be able to change without discarding
+     * the scroll contribution. The two are added at the point of writing — one
+     * transform per layer, never two systems writing the same element.
      */
-    const focus = { current: 0, target: 0 }
+    const pointer = { x: 0, y: 0 }
+    const eased = { x: 0, y: 0 }
+
+    /*
+     * How far the document can scroll, and the tier that depends on the
+     * viewport. Both read here and on resize rather than per frame.
+     *
+     * `scrollHeight` in particular is a forced synchronous layout — the browser
+     * cannot answer it without first flushing pending style and layout work —
+     * and reading it inside the scroll path is the most expensive place to ask.
+     * Pages do grow as cards load, so a ResizeObserver on the document element
+     * refreshes it when the height actually changes rather than on the chance
+     * that it might have.
+     */
+    let scrollLength = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+    let tier = depthTier()
 
     /*
      * The element's box, measured once and on resize rather than per event.
      *
      * Reading `getBoundingClientRect()` inside a `mousemove` handler is a
-     * forced synchronous layout — the browser must flush pending style and
-     * layout work before it can answer — and on an element that covers the
-     * whole viewport that is the most expensive question you can ask, at the
-     * highest frequency you can ask it. This element is `fixed inset-0`, so the
-     * answer only changes when the viewport does.
+     * forced synchronous layout, and on an element that covers the whole
+     * viewport that is the most expensive question you can ask at the highest
+     * frequency you can ask it. This element is `fixed inset-0`, so the answer
+     * only changes when the viewport does.
      */
     let box = ref.current?.getBoundingClientRect() ?? null
-
-    /*
-     * How far the document can scroll, and the tier and step that depend on the
-     * viewport. All three are read here and on resize rather than per frame.
-     *
-     * `scrollHeight` in particular was read inside `journeyAt` on every scroll
-     * frame, and reading it forces the browser to flush pending style and
-     * layout work before it can answer — a synchronous layout, in the callback
-     * the browser most wants to keep short. Pages do grow as cards load, so it
-     * is refreshed by a ResizeObserver on the document element as well, which
-     * fires when the height actually changes instead of on the chance that it
-     * might have.
-     */
-    let scrollLength = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
-    let tier = depthTier()
-    let step = writeStep()
 
     /*
      * Resize, coalesced to one frame and skipped when nothing it reads changed.
      *
      * THIS IS A PHONE PROBLEM AND ONLY A PHONE PROBLEM, which is why it is
-     * worth the eight lines. On a desktop `resize` fires while a window is
-     * being dragged and never during scrolling. On Android and iOS the address
-     * bar collapses as you scroll down and comes back as you scroll up, and
-     * every step of that fires `resize` — in the middle of the gesture. Each
-     * one landed here, and each one read `getBoundingClientRect()` and
-     * `scrollHeight`: two forced synchronous layouts, at scroll frequency, in
-     * exactly the moment the browser has the least time to spare. No emulator
-     * reproduces it, because no emulator has an address bar that hides.
+     * worth the lines. On a desktop `resize` fires while a window is dragged and
+     * never during scrolling. On Android and iOS the address bar collapses as
+     * you scroll down and returns as you scroll up, and every step of that fires
+     * `resize` — in the middle of the gesture. Each one landed here and read
+     * `getBoundingClientRect()` and `scrollHeight`: two forced synchronous
+     * layouts, at scroll frequency, in the moment the browser has least time to
+     * spare. No emulator reproduces it, because no emulator has an address bar
+     * that hides.
      *
-     * Two guards. The rAF coalesces a burst into one measurement per frame,
-     * and it lands in the frame's own read phase rather than inside the event.
-     * The dimension check is what makes the common case free: the toolbar
-     * changes the viewport height, `box` is a `fixed inset-0` element whose
-     * geometry follows it, and `scrollLength` is defined against it — so a
-     * height that has genuinely changed still re-measures, and the repeated
-     * events reporting the *same* height do not.
+     * Two guards. The rAF coalesces a burst into one measurement per frame, in
+     * the frame's own read phase rather than inside the event. The dimension
+     * check is what makes the common case free: the toolbar changes the viewport
+     * height, so a height that has genuinely changed still re-measures and the
+     * repeated events reporting the same height do not.
      */
     let measuredW = window.innerWidth
     let measuredH = window.innerHeight
@@ -830,7 +1012,6 @@ function KushtiaMapImpl({
       box = ref.current?.getBoundingClientRect() ?? null
       scrollLength = Math.max(0, document.documentElement.scrollHeight - measuredH)
       tier = depthTier()
-      step = writeStep()
     }
 
     const remeasure = () => {
@@ -846,23 +1027,76 @@ function KushtiaMapImpl({
 
     let frame = 0
     let running = false
-    /** The last value actually written to the layers. See `writeStep`. */
-    let written = { x: Number.NaN, y: Number.NaN }
+    let lastDraw = 0
+
+    /** The last position written, so a frame that would change nothing does not
+     *  touch the DOM at all. */
+    let written = { x: Number.NaN, y: Number.NaN, p: Number.NaN, v: Number.NaN }
     /** The last position written to the focus light, in whole SVG units. */
     let litAt = { x: Number.NaN, y: Number.NaN }
 
-    /**
-     * The frame clock for the eases below.
-     *
-     * Stamped by `wake()` as well as by each frame, so the first frame after
-     * the loop has been idle measures its own length rather than the length of
-     * the idle period — which would otherwise collapse the whole remaining
-     * distance in one step and show up as a jump.
+    /*
+     * The focus light's position along the journey, held separately from the
+     * parallax so it can ease at its own rate — slower, so it drifts rather
+     * than tracks, which is what makes it feel like a camera rather than a
+     * cursor.
      */
-    let lastDraw = 0
+    const focus = { current: 0, target: 0 }
 
     /** The fraction of a remaining distance to close on a frame of `dt` ms. */
     const ease = (dt: number, halfLife: number) => 1 - Math.pow(2, -dt / halfLife)
+
+    /*
+     * The single writer.
+     *
+     * Scroll and pointer are combined here and nowhere else, so an element
+     * never has one system's transform overwritten by another's. On a phone
+     * `driven` is the one stage element and it takes the mid layer's travel;
+     * everywhere else each layer takes its own.
+     */
+    function paint() {
+      for (let i = 0; i < driven.length; i++) {
+        const node = driven[i]
+        if (!node) continue
+        const layer = layered ? LAYERS[i] : LAYERS[1]
+        /*
+         * One transform, three contributions, added rather than layered.
+         *
+         * Pointer tilt, scroll parallax and the velocity lean all resolve into
+         * a single `translate3d` per element. Nothing here reads back what it
+         * wrote and no second system touches these nodes, so the three can
+         * never fight over the same property — which is the failure mode the
+         * brief calls out and the one the old React-state version actually had.
+         *
+         * The lean is scaled by the layer's share of the deepest travel, so it
+         * inherits the depth ordering instead of asserting its own.
+         */
+        const lean = velocity * VELOCITY_PULL * (layer.travel / DEEPEST_TRAVEL) * tier
+        const y = eased.y * layer.point * tier - progress * layer.travel * tier - lean
+        const x = eased.x * layer.point * tier
+        node.style.transform = `translate3d(${x}px, ${y}px, 0)`
+      }
+    }
+
+    /*
+     * The light's strength, written only when it changes by something visible.
+     *
+     * Separate from `paint` because it is one element and one property, and
+     * because on a phone the layers are not individually driven — the stage
+     * moves instead — but the light should still respond. Opacity is the right
+     * property for it: like transform it stays on the compositor, so this costs
+     * nothing beyond the write.
+     */
+    let litOpacity = Number.NaN
+
+    function glow() {
+      const node = nodes[GLOW_LAYER]
+      if (!node) return
+      const next = GLOW_RESTING + (GLOW_ACTIVE - GLOW_RESTING) * Math.abs(velocity) * tier
+      if (Math.abs(next - litOpacity) < 0.01) return
+      litOpacity = next
+      node.style.opacity = next.toFixed(3)
+    }
 
     function draw(now: number) {
       running = true
@@ -873,31 +1107,62 @@ function KushtiaMapImpl({
       const dt = Math.min(now - lastDraw, 64)
       lastDraw = now
 
-      const dx = target.x - current.x
-      const dy = target.y - current.y
+      const dx = pointer.x - eased.x
+      const dy = pointer.y - eased.y
       const df = focus.target - focus.current
+
+      /*
+       * Velocity, measured from the value the loop already has.
+       *
+       * `progress` only changes when lib/scroll.ts publishes, so once the
+       * reader stops this difference is zero every frame and the ease below
+       * walks `velocity` back to rest without anything having to notice that
+       * the gesture ended.
+       */
+      const instant = dt > 0 ? (progress - lastProgress) / (dt / 1000) : 0
+      lastProgress = progress
+      const clamped = Math.max(-1, Math.min(1, instant / VELOCITY_FULL))
+      velocity += (clamped - velocity) * ease(dt, VELOCITY_HALF_LIFE_MS)
+
+      // Comfortably tighter than the write threshold, so the loop always lands
+      // its final paint before it decides there is nothing left to do.
+      //
+      // Velocity is part of the test for the same reason the light is: the
+      // parallax can be at rest while the lean is still unwinding, and stopping
+      // there would freeze the map mid-lean until the next input.
+      const settled =
+        Math.abs(dx) < POINTER_EPSILON / 10 &&
+        Math.abs(dy) < POINTER_EPSILON / 10 &&
+        Math.abs(df) < 0.0004 &&
+        Math.abs(velocity) < 0.002 &&
+        progress === written.p
 
       // Nothing left to move. Stop the loop entirely rather than burning a
       // frame forever on a page that is sitting still — the next input calls
       // `wake()` and it picks up where it left off.
       //
-      // The light is part of that test now. Without it the loop could settle
-      // the parallax and stop while the light was still mid-journey, freezing
-      // it part-way between two towns until the next scroll event.
-      if (
-        Math.abs(dx) < SETTLED / 100 &&
-        Math.abs(dy) < SETTLED / 100 &&
-        Math.abs(df) < 0.0004
-      ) {
+      // The light is part of that test: without it the loop could settle the
+      // parallax and stop while the light was still mid-journey, freezing it
+      // part-way between two towns until the next scroll event.
+      if (settled) {
         cancelAnimationFrame(frame)
         running = false
-        for (const node of nodes) node?.style.removeProperty('will-change')
+        // Land the lean exactly at rest rather than a thousandth short of it,
+        // so the resting pose is the one the design asks for and the next
+        // gesture starts from a known zero.
+        if (velocity !== 0) {
+          velocity = 0
+          written = { x: eased.x, y: eased.y, p: progress, v: 0 }
+          paint()
+          glow()
+        }
+        for (const node of driven) node?.style.removeProperty('will-change')
         return
       }
 
-      const layerStep = ease(dt, LAYER_HALF_LIFE_MS)
-      current.x += dx * layerStep
-      current.y += dy * layerStep
+      const step = ease(dt, POINTER_HALF_LIFE_MS)
+      eased.x += dx * step
+      eased.y += dy * step
 
       // Eases slower than the parallax, so the light lags the page a little and
       // reads as something travelling rather than something pinned to scroll.
@@ -905,8 +1170,8 @@ function KushtiaMapImpl({
       if (focusRef.current) {
         const p = pointOnJourney(focus.current)
         // Rounded to whole units — a third of a CSS pixel on a phone, less on a
-        // desktop. The light is a 300-unit gradient and moving it repaints
-        // everything under it, so a sub-pixel rewrite is a repaint for nothing.
+        // desktop. The light is a 300-unit gradient and moving it repaints its
+        // own layer, so a sub-pixel rewrite is a repaint for nothing.
         const lx = Math.round(p.x)
         const ly = Math.round(p.y)
         if (lx !== litAt.x || ly !== litAt.y) {
@@ -916,105 +1181,46 @@ function KushtiaMapImpl({
       }
 
       /*
-       * Seven writes, no reads — and only when there is a pixel in it.
+       * Writes, no reads — and only when a write would change something.
        *
-       * Writing transforms without reading layout in between is what keeps this
-       * out of the layout-thrash pattern: the browser batches all seven into
-       * one style recalculation. What it does not avoid is the raster, because
-       * these are SVG groups rather than HTML elements and each write
-       * re-rasterises the region they cover — the whole viewport, here. `step`
-       * is what turns "every frame" into "every frame that moves something
-       * anyone can see"; see the note on `writeStep`.
+       * The quantisation that used to guard this is gone with the reason for
+       * it. These transforms land on promoted HTML layers now, so a write is a
+       * compositor move rather than a re-rasterisation of the viewport, and
+       * there is no longer anything to be gained by moving in visible steps.
+       * What remains is the cheap check that the value actually changed.
        */
       if (
-        !(Math.abs(current.x - written.x) < step) ||
-        !(Math.abs(current.y - written.y) < step)
+        Math.abs(eased.x - written.x) >= POINTER_EPSILON ||
+        Math.abs(eased.y - written.y) >= POINTER_EPSILON ||
+        // A hundredth of full velocity is ~0.16px of lean on the deepest layer.
+        Math.abs(velocity - written.v) >= 0.01 ||
+        progress !== written.p
       ) {
-        written = { x: current.x, y: current.y }
-        for (let i = 0; i < nodes.length; i++) {
-          const node = nodes[i]
-          if (!node) continue
-          const depth = LAYER_DEPTHS[i]
-          node.style.transform = `translate3d(${current.x * depth}px, ${current.y * depth}px, 0)`
-        }
+        written = { x: eased.x, y: eased.y, p: progress, v: velocity }
+        paint()
       }
+
+      glow()
     }
 
     function wake() {
       if (running) return
+      // Stamped here rather than inside `draw`, so the first frame after an idle
+      // period measures its own length instead of the length of the idle period
+      // — which would otherwise collapse the whole remaining distance in one
+      // step and show up as a jump.
       lastDraw = performance.now()
       // Hinted only while something is actually moving. A permanent
-      // `will-change: transform` on seven full-viewport groups asks the
-      // compositor to hold seven layers for the life of the page, which costs
+      // `will-change: transform` on five full-viewport layers asks the
+      // compositor to hold five textures for the life of the page, which costs
       // memory on exactly the low-end phones this is meant to feel smooth on.
-      for (const node of nodes) node?.style.setProperty('will-change', 'transform')
+      for (const node of driven) node?.style.setProperty('will-change', 'transform')
       frame = requestAnimationFrame(draw)
     }
 
-    /*
-     * The two inputs are tracked separately and combined into the target,
-     * because they arrive from different events and each has to be able to
-     * change without discarding the other. The combination is exactly the one
-     * the old inline style computed: horizontal is pointer only, vertical is
-     * pointer tilt minus the clamped scroll contribution.
-     */
-    const pointer = { x: 0, y: 0 }
-
-    /*
-     * Clamped, so the separation accrues over the first screen or so and then
-     * holds. Without it an eight-screen page would slide the labels a hundred
-     * pixels clear of the markers they belong to.
-     */
-    const shareAt = (scrollY: number) =>
-      (Math.min(scrollY, SCROLL_SPAN) / SCROLL_SPAN) * 7 * tier
-
-    let scrollShare = shareAt(currentScrollY())
-
-    /**
-     * How far through the page we are, 0..1 — and therefore how far along the
-     * journey the light should be.
-     *
-     * Deliberately the *whole document*, not `SCROLL_SPAN`. The parallax clamps
-     * at one screen because its job is to separate the layers a little and then
-     * stop; the light's job is the opposite, to make reading the page feel like
-     * travelling the district end to end, so it has to stretch across
-     * everything there is to scroll.
-     *
-     * The page length is `scrollLength`, measured on resize and whenever the
-     * document actually changes height, rather than read here. It used to be
-     * read here — `document.documentElement.scrollHeight`, once per scroll
-     * frame — and that is a forced synchronous layout inside the scroll path:
-     * the browser cannot answer it without first flushing whatever style and
-     * layout work is pending. Pages do grow as cards load, which is why it was
-     * read live; a ResizeObserver covers that without asking every frame.
-     */
-    function journeyAt(scrollY: number): number {
+    function progressAt(scrollY: number): number {
       if (scrollLength <= 0) return 0
       return Math.min(Math.max(scrollY / scrollLength, 0), 1)
-    }
-
-    focus.current = journeyAt(currentScrollY())
-    focus.target = focus.current
-
-    /*
-     * Placed once, now, before any frame runs.
-     *
-     * The loop only writes while something is moving, and at the top of a page
-     * nothing is: `focus.current` already equals `focus.target`, so `draw()`
-     * settles on its first pass without touching the light. Without this line
-     * the group keeps its initial `transform: none` and the light sits at the
-     * viewBox origin — the top-left corner of the artwork, nowhere near
-     * Daulatpur — until the reader happens to scroll.
-     */
-    if (focusRef.current) {
-      const p = pointOnJourney(focus.current)
-      focusRef.current.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`
-    }
-
-    function retarget() {
-      target.x = pointer.x
-      target.y = pointer.y - scrollShare
-      wake()
     }
 
     function onMove(event: MouseEvent) {
@@ -1022,27 +1228,55 @@ function KushtiaMapImpl({
       // -1..1 from the centre, so the shift is symmetric.
       pointer.x = ((event.clientX - box.left) / box.width - 0.5) * 2
       pointer.y = ((event.clientY - box.top) / box.height - 0.5) * 2
-      retarget()
+      wake()
     }
 
     // Through the shared loop rather than its own listener — see lib/scroll.ts.
-    // The value arrives already batched to one frame, so this never recomputes
-    // more often than it can paint.
+    // The value arrives already eased and already batched to one frame, so this
+    // never recomputes more often than it can paint, and it is written straight
+    // through rather than eased a second time.
     const unsubscribe = onScrollFrame((scrollY) => {
-      scrollShare = shareAt(scrollY)
-      focus.target = journeyAt(scrollY)
-      retarget()
+      progress = progressAt(scrollY)
+      focus.target = progress
+      wake()
     })
+
+    // Seeded and painted once, before any frame runs. The loop only writes
+    // while something is moving, and at the top of a restored page nothing is —
+    // without this the layers keep `transform: none` and the light sits at the
+    // viewBox origin until the reader happens to scroll.
+    focus.current = focus.target
+    eased.x = pointer.x
+    eased.y = pointer.y
+    /*
+     * Seeded, and this line is load-bearing on a restored page.
+     *
+     * `lastProgress` starts at 0, so without this the first frame differences
+     * the restored position against the top of the document and measures a
+     * velocity of the entire page in one frame — which clamps to full tilt and
+     * shows up as the map lurching sideways the instant a deep-linked or
+     * reloaded page settles. Starting it level means the first measured
+     * velocity is zero, which is the truth: nobody has scrolled yet.
+     */
+    lastProgress = progress
+    written = { x: eased.x, y: eased.y, p: progress, v: velocity }
+    paint()
+    glow()
+    if (focusRef.current) {
+      const p = pointOnJourney(focus.current)
+      litAt = { x: Math.round(p.x), y: Math.round(p.y) }
+      focusRef.current.style.transform = `translate3d(${litAt.x}px, ${litAt.y}px, 0)`
+    }
 
     /*
      * A hidden tab delivers no frames. Stopping on the way out means a
-     * backgrounded ELAKAI is not holding seven promoted compositor layers, and
-     * re-basing on the way in means it does not snap when it comes back.
+     * backgrounded ELAKAI is not holding promoted compositor layers, and
+     * re-measuring on the way in means it does not snap when it comes back.
      */
     function onVisibility() {
       if (document.visibilityState === 'visible') {
         remeasure()
-        retarget()
+        wake()
       } else if (running) {
         cancelAnimationFrame(frame)
         running = false
@@ -1063,77 +1297,473 @@ function KushtiaMapImpl({
       // The coalesced measurement is a frame this component owns like any
       // other; leaving it queued past unmount is the same orphan.
       if (pendingMeasure) cancelAnimationFrame(pendingMeasure)
-      // Never leave the hint behind on an unmount mid-animation.
-      for (const node of nodes) node?.style.removeProperty('will-change')
+      // Never leave the hint behind on an unmount mid-animation, and never
+      // leave a stale transform on an element this run was driving — crossing
+      // the breakpoint changes which element that is, and the one being
+      // abandoned has to go back to rest or its offset is frozen in.
+      for (const node of driven) {
+        node?.style.removeProperty('will-change')
+        node?.style.removeProperty('transform')
+      }
+      // The light's dimmed resting state belongs to this run. Someone turning
+      // reduced motion on mid-session tears the effect down and gets no further
+      // frames, so without this the glow would stay held at its scrolling
+      // resting value forever instead of returning to full authored strength.
+      nodes[GLOW_LAYER]?.style.removeProperty('opacity')
     }
-  }, [reduced, panel])
+  }, [reduced, panel, layered])
 
   /**
-   * Assigns each animated group its slot in `layerRefs`.
+   * Assigns each layer div its slot in `layerRefs`.
    *
-   * Index-based rather than named, so the loop above can walk `LAYER_DEPTHS`
-   * and the refs in lockstep without a lookup per frame.
+   * Index-based rather than named, so the loop above can walk `LAYERS` and the
+   * refs in lockstep without a lookup per frame.
    */
   const setLayer = useMemo(
     () =>
-      LAYER_DEPTHS.map((_, i) => (node: SVGGElement | null) => {
+      LAYERS.map((_, i) => (node: HTMLDivElement | null) => {
         layerRefs.current[i] = node
       }),
     [],
   )
 
   return (
-    <div ref={ref} aria-hidden="true" className={cn('pointer-events-none', className)}>
+    /*
+     * The field colour lives on the container rather than on a rect inside the
+     * artwork, so there is always an opaque floor under every layer. Whatever
+     * the parallax does, the reader can never see through the backdrop to the
+     * page background — which is the failure the oversize below is the first
+     * line of defence against and this is the last.
+     */
+    <div
+      ref={ref}
+      aria-hidden="true"
+      className={cn(
+        'pointer-events-none overflow-hidden bg-[#f4f7fb] dark:bg-[#0b1220]',
+        className,
+      )}
+    >
+      {/*
+        The moving stage.
+
+        Oversized by exactly the ratio `VIEW_BOX` is padded by, which is what
+        makes the margin free rather than a zoom — see the note above `PAD`. The
+        two have to be changed together or the composition reframes.
+
+        On a phone this element is the one that moves; everywhere else it is a
+        static frame and the layers inside it move. Either way it is the only
+        element carrying the oversize, so the layers stay `inset-0` against it
+        and register with each other exactly.
+      */}
+      <div ref={stageRef} className="absolute inset-[-6%]">
+        {/* 1 — the far field: grid, low ground and the upazila divisions.
+            The furthest layer, so it moves least; it is what the closer layers
+            are seen to move against. */}
+        <div ref={setLayer[0]} className="absolute inset-0">
+          <svg
+            viewBox={VIEW_BOX}
+            preserveAspectRatio="xMidYMid slice"
+            className="size-full"
+            role="presentation"
+            focusable="false"
+          >
+            <defs>
+              <pattern id="km-grid" width="60" height="60" patternUnits="userSpaceOnUse">
+                <path
+                  d="M 60 0 L 0 0 0 60"
+                  fill="none"
+                  strokeWidth="1"
+                  className="stroke-[#d4dce7] dark:stroke-[#1d2a3d]"
+                />
+              </pattern>
+            </defs>
+
+            {/* The one full-bleed fill in the whole backdrop, and therefore the
+                one thing with an edge that could travel into view. Drawn well
+                past the padded viewBox on every side so it cannot: the layer
+                itself moves 34px at most, and this clears that several times
+                over at every viewport the site runs at. */}
+            <rect
+              x={-VIEW.w * 0.2}
+              y={-VIEW.h * 0.2}
+              width={VIEW.w * 1.4}
+              height={VIEW.h * 1.4}
+              fill="url(#km-grid)"
+              opacity="0.7"
+            />
+
+            {/* Low ground, on the deepest layer so it sits under everything and
+                barely moves — ground should not parallax like a road. */}
+            {TERRAIN.map((d, i) => (
+              <path
+                key={`terrain-${i}`}
+                d={d}
+                className="fill-[#e6edf6] dark:fill-[#101c2e]"
+                opacity="0.5"
+              />
+            ))}
+
+            {/* Upazila divisions. Dashed hairlines, the faintest strokes here. */}
+            {BOUNDARIES.map((d, i) => (
+              <path
+                key={`bound-${i}`}
+                d={d}
+                fill="none"
+                strokeWidth="1"
+                strokeDasharray="2 9"
+                className="stroke-[#a9b8cc] dark:stroke-[#2b3a51]"
+                opacity="0.55"
+              />
+            ))}
+          </svg>
+        </div>
+
+        {/* 2 — settlement density and the water.
+            Urban blocks and the two river systems sat three depth units apart
+            before this split and share one layer now: three units out of a
+            hundred was never a separation anyone could see, and it is a whole
+            compositor texture saved on every device. */}
+        <div ref={setLayer[1]} className="absolute inset-0">
+          <svg
+            viewBox={VIEW_BOX}
+            preserveAspectRatio="xMidYMid slice"
+            className="size-full"
+            role="presentation"
+            focusable="false"
+          >
+            <g className="fill-[#dbe3ee] dark:fill-[#16233a]">
+              {PLACES.flatMap((p, i) =>
+                // A deterministic scatter — same seed, same blocks, every render.
+                Array.from({ length: 5 }, (_, k) => {
+                  const seed = i * 7 + k * 13
+                  const w = 22 + ((seed * 11) % 26)
+                  const h = 14 + ((seed * 7) % 18)
+                  return (
+                    <rect
+                      key={`${p.id}-${k}`}
+                      x={p.x + (((seed * 17) % 120) - 60)}
+                      y={p.y + (((seed * 23) % 90) - 45)}
+                      width={w}
+                      height={h}
+                      rx="2"
+                      opacity={0.55}
+                    />
+                  )
+                }),
+              )}
+
+              {/* Smaller blocks around the minor settlements. Same deterministic
+                  scatter, two-thirds the size and half the opacity, so density
+                  falls off away from the towns the way it actually does. */}
+              {MINOR.flatMap((m, i) =>
+                Array.from({ length: 3 }, (_, k) => {
+                  const seed = i * 11 + k * 19
+                  return (
+                    <rect
+                      key={`minor-block-${i}-${k}`}
+                      x={m.at.x + (((seed * 13) % 74) - 37)}
+                      y={m.at.y + (((seed * 29) % 56) - 28)}
+                      width={12 + ((seed * 7) % 16)}
+                      height={9 + ((seed * 5) % 12)}
+                      rx="1.5"
+                      opacity={0.3}
+                    />
+                  )
+                }),
+              )}
+            </g>
+
+            {/* The Padma along the north-west, the Gorai to the south-east. */}
+            <g fill="none" strokeLinecap="round">
+              <path
+                d="M -40 150 C 180 96, 330 128, 470 212 S 690 300, 860 268 S 1120 214, 1260 246"
+                strokeWidth="26"
+                className="stroke-[#bcd7ee] dark:stroke-[#12405c]"
+                opacity="0.75"
+              />
+              <path
+                d="M -40 150 C 180 96, 330 128, 470 212 S 690 300, 860 268 S 1120 214, 1260 246"
+                strokeWidth="10"
+                className="stroke-[#8fc0e6] dark:stroke-[#1d6f96]"
+                opacity="0.6"
+              />
+              <path
+                d="M 700 400 C 790 470, 900 520, 1010 566 S 1180 640, 1250 700"
+                strokeWidth="14"
+                className="stroke-[#bcd7ee] dark:stroke-[#12405c]"
+                opacity="0.6"
+              />
+
+              {/* Tributaries. Same hue as the channels they feed, a fifth of the
+                  width, so the water reads as a system rather than two stripes. */}
+              {TRIBUTARIES.map((d, i) => (
+                <path
+                  key={`trib-${i}`}
+                  d={d}
+                  strokeWidth="4"
+                  className="stroke-[#bcd7ee] dark:stroke-[#12405c]"
+                  opacity="0.5"
+                />
+              ))}
+            </g>
+          </svg>
+        </div>
+
+        {/* 3 — the road network, in hierarchy order: lanes, then local roads,
+               then trunk, then the dashed secondary routes. Painted
+               lowest-first so the trunk network stays on top of its own
+               feeders, which is what makes the hierarchy legible rather than
+               just thinner. */}
+        <div ref={setLayer[2]} className="absolute inset-0">
+          <svg
+            viewBox={VIEW_BOX}
+            preserveAspectRatio="xMidYMid slice"
+            className="size-full"
+            role="presentation"
+            focusable="false"
+          >
+            <g fill="none" strokeLinecap="round">
+              {LANES.map((d, i) => (
+                <path
+                  key={`lane-${i}`}
+                  d={d}
+                  strokeWidth="1"
+                  className="stroke-[#cfd8e4] dark:stroke-[#22334c]"
+                  opacity="0.45"
+                />
+              ))}
+
+              {MINOR_ROADS.map((d, i) => (
+                <path
+                  key={`minor-road-${i}`}
+                  d={d}
+                  strokeWidth="2.5"
+                  className="stroke-[#cfd8e4] dark:stroke-[#22334c]"
+                  opacity="0.8"
+                />
+              ))}
+
+              {ROADS.map((d, i) => (
+                <path
+                  key={i}
+                  d={d}
+                  strokeWidth="7"
+                  className="stroke-[#cfd8e4] dark:stroke-[#22334c]"
+                />
+              ))}
+              {ROADS.map((d, i) => (
+                <path
+                  key={`inner-${i}`}
+                  d={d}
+                  strokeWidth="2.5"
+                  className="stroke-[#e8eef6] dark:stroke-[#31465f]"
+                />
+              ))}
+
+              {ROUTES.map((d, i) => (
+                <path
+                  key={`route-${i}`}
+                  d={d}
+                  strokeWidth="2.5"
+                  strokeDasharray="10 12"
+                  className="stroke-[#93b4d8] dark:stroke-[#2f6ea0]"
+                  opacity="0.85"
+                />
+              ))}
+            </g>
+          </svg>
+        </div>
+
+        {/* 4 — the focus light, travelling the journey.
+
+            It walks Daulatpur → Bheramara → Mirpur → Kushtia Sadar →
+            Kumarkhali → Khoksa along the same Bézier curves the trunk roads are
+            drawn from, positioned by how far down the page the reader is.
+
+            Its own layer, and that is the point. The light moves every frame
+            the page is scrolling, and while it lived inside the one big SVG
+            every step of its journey invalidated the raster of the entire map.
+            Alone on a layer that holds nothing but a gradient, it repaints only
+            itself.
+
+            Two nested elements because each carries a different transform and
+            an element only has one. The div is the parallax plane, written by
+            the shared loop with every other layer, so the light drifts with the
+            map and stays in register with the roads under it. The inner group
+            is the journey position. Composing them by nesting is what keeps the
+            parallax half on the compositor. */}
+        <div ref={setLayer[3]} className="absolute inset-0">
+          <svg
+            viewBox={VIEW_BOX}
+            preserveAspectRatio="xMidYMid slice"
+            className="size-full"
+            role="presentation"
+            focusable="false"
+          >
+            <defs>
+              {/* Three stops rather than two, and the middle one carries most of
+                  the work: a straight centre-to-edge fade has a visible bright
+                  core and reads as a ball. Dropping to a third of the opacity by
+                  40% and then trailing to nothing spreads the light over its
+                  whole radius, which is what makes it read as an area being lit
+                  instead. Dark mode is allowed to be a little stronger — the
+                  same alpha over a navy field is far less visible than over an
+                  off-white one — but it is still under a fifth of full.
+                  `stop-opacity` is set through the class so it can vary with the
+                  theme; a plain attribute cannot. */}
+              <radialGradient id="km-focus" cx="50%" cy="50%">
+                <stop
+                  offset="0%"
+                  className="[stop-color:#2563EB] [stop-opacity:0.26] dark:[stop-color:#38BDF8] dark:[stop-opacity:0.34]"
+                />
+                <stop
+                  offset="40%"
+                  className="[stop-color:#2563EB] [stop-opacity:0.11] dark:[stop-color:#38BDF8] dark:[stop-opacity:0.15]"
+                />
+                <stop
+                  offset="100%"
+                  className="[stop-color:#2563EB] [stop-opacity:0] dark:[stop-color:#38BDF8] dark:[stop-opacity:0]"
+                />
+              </radialGradient>
+            </defs>
+            <g ref={focusRef}>
+              <circle r={FOCUS_RADIUS} fill="url(#km-focus)" />
+            </g>
+          </svg>
+        </div>
+
+        {/* 5 — markers and labels, the nearest plane and therefore the one that
+               moves most. Held at 0.8 so place names read as part of the
+               backdrop rather than competing with the hero copy over them. */}
+        <div ref={setLayer[4]} className="absolute inset-0">
+          <svg
+            viewBox={VIEW_BOX}
+            preserveAspectRatio="xMidYMid slice"
+            className="size-full"
+            role="presentation"
+            focusable="false"
+          >
+            <g opacity="0.8">
+              {/* Junctions, drawn before the settlements so a node sits over its
+                  own road joint rather than under it. */}
+              {JUNCTIONS.map((j, i) => (
+                <circle
+                  key={`junction-${i}`}
+                  cx={j.x}
+                  cy={j.y}
+                  r="2.5"
+                  className="fill-[#9db3cc] dark:fill-[#3d5372]"
+                  opacity="0.7"
+                />
+              ))}
+
+              {/* Minor settlements. Roughly half the node and 60% the label of a
+                  town, and dimmer — the six upazila seats have to stay readable
+                  as the primary tier at a glance. */}
+              {MINOR.map((m) => (
+                <g key={m.name.en}>
+                  <circle
+                    cx={m.at.x}
+                    cy={m.at.y}
+                    r="3.5"
+                    className="fill-[#9db3cc] dark:fill-[#3d5372]"
+                  />
+                  <circle
+                    cx={m.at.x}
+                    cy={m.at.y}
+                    r="1.5"
+                    className="fill-[#ffffff] dark:fill-[#0b1220]"
+                  />
+                  <text
+                    x={m.at.x}
+                    y={m.at.y - 9}
+                    textAnchor="middle"
+                    className="text-[10px] font-semibold tracking-wide fill-[#8ba0b8] dark:fill-[#4a627f]"
+                  >
+                    {L(m.name)}
+                  </text>
+                </g>
+              ))}
+
+              {PLACES.map((p) => {
+                const isSadar = p.id === 'kushtia-sadar'
+                return (
+                  <g key={p.id}>
+                    {isSadar && (
+                      <circle
+                        cx={p.x}
+                        cy={p.y}
+                        r="26"
+                        className="fill-primary/20 animate-pulse-ring"
+                      />
+                    )}
+                    <circle
+                      cx={p.x}
+                      cy={p.y}
+                      r={isSadar ? 11 : 7}
+                      className={
+                        isSadar ? 'fill-primary' : 'fill-[#7ea6d4] dark:fill-[#4b87c4]'
+                      }
+                    />
+                    <circle
+                      cx={p.x}
+                      cy={p.y}
+                      r={isSadar ? 4.5 : 3}
+                      className="fill-[#ffffff] dark:fill-[#0b1220]"
+                    />
+                    <text
+                      x={p.x}
+                      y={p.y - (isSadar ? 24 : 18)}
+                      textAnchor="middle"
+                      className={cn(
+                        'text-[17px] font-bold tracking-wide',
+                        isSadar
+                          ? 'fill-[#1f4d80] dark:fill-[#9ec9f0]'
+                          : 'fill-[#5b7794] dark:fill-[#5f81a8]',
+                      )}
+                    >
+                      {L(p.name)}
+                    </text>
+                  </g>
+                )
+              })}
+            </g>
+          </svg>
+        </div>
+      </div>
+
+      {/*
+        The readability veil, so hero copy sits on calm ground.
+
+        Outside the stage and never transformed. It is the one part of the
+        backdrop that must stay locked to the viewport: it is what keeps text
+        legible over the map, so it has to cover exactly the screen and carry
+        none of the parallax. Being static also means it is rasterised once and
+        never again, which is why it stays an SVG gradient rather than becoming
+        another moving layer.
+
+        A gentle, even scrim rather than a directional fade. While the map was
+        the hero's own backdrop it could dim hardest on the left where the copy
+        sat; as the backdrop for every page that no longer holds — search
+        results and card grids run full width — so it settles to a light overall
+        wash that keeps contrast off the text without deciding where the text
+        will be. Cards and panels carry their own opaque surfaces on top of it.
+
+        The panel variant lifts the veil to roughly a third of the backdrop's.
+        There is no body copy over the map on the auth page — only a wordmark
+        and one line, both of which carry their own contrast — so the veil there
+        is only keeping the map from competing with the form beside it, not
+        making text legible on top of it. Left at full strength it washed the
+        district out to the point that reusing the real map stopped being
+        visible at all.
+      */}
       <svg
-        viewBox={`0 0 ${VIEW.w} ${VIEW.h}`}
-        preserveAspectRatio="xMidYMid slice"
-        className="size-full"
+        className="absolute inset-0 size-full"
+        preserveAspectRatio="none"
         role="presentation"
         focusable="false"
       >
         <defs>
-          {/* Gradient stops carry their colour as a class pair rather than a
-              `theme()` lookup: one class cannot change with the theme, and the
-              veil in particular has to match the hero's own surface exactly in
-              both modes or it reads as a grey panel floating over the map. */}
-          {/* The focus light.
-              Three stops rather than two, and the middle one carries most of
-              the work: a straight centre-to-edge fade has a visible bright core
-              and reads as a ball. Dropping to a third of the opacity by 40% and
-              then trailing to nothing spreads the light over its whole radius,
-              which is what makes it read as an area being lit instead.
-              Dark mode is allowed to be a little stronger — the same alpha over
-              a navy field is far less visible than over an off-white one — but
-              it is still under a fifth of full. `stop-opacity` is set through
-              the class so it can vary with the theme; a plain attribute cannot. */}
-          <radialGradient id="km-focus" cx="50%" cy="50%">
-            <stop
-              offset="0%"
-              className="[stop-color:#2563EB] [stop-opacity:0.26] dark:[stop-color:#38BDF8] dark:[stop-opacity:0.34]"
-            />
-            <stop
-              offset="40%"
-              className="[stop-color:#2563EB] [stop-opacity:0.11] dark:[stop-color:#38BDF8] dark:[stop-opacity:0.15]"
-            />
-            <stop
-              offset="100%"
-              className="[stop-color:#2563EB] [stop-opacity:0] dark:[stop-color:#38BDF8] dark:[stop-opacity:0]"
-            />
-          </radialGradient>
-          {/* A gentle, even scrim rather than a directional fade.
-              While the map was the hero's own backdrop it could dim hardest on
-              the left, where the copy sat. As the backdrop for every page that
-              no longer holds — search results and card grids run full width —
-              so it settles to a light overall wash that keeps contrast off the
-              text without deciding where the text will be. Cards and panels
-              carry their own opaque surfaces on top of it. */}
-          {/* The panel variant lifts the veil to roughly a third of the
-              backdrop's. There is no body copy over the map on the auth page —
-              only a wordmark and one line, both of which carry their own
-              contrast — so the veil there is only keeping the map from
-              competing with the form beside it, not making text legible on top
-              of it. Left at full strength it washed the district out to the
-              point that reusing the real map stopped being visible at all. */}
           <linearGradient id="km-veil" x1="0" y1="0" x2="0" y2="1">
             <stop
               offset="0%"
@@ -1151,310 +1781,8 @@ function KushtiaMapImpl({
               stopOpacity={panel ? '0.24' : '0.66'}
             />
           </linearGradient>
-          <pattern id="km-grid" width="60" height="60" patternUnits="userSpaceOnUse">
-            <path
-              d="M 60 0 L 0 0 0 60"
-              fill="none"
-              strokeWidth="1"
-              className="stroke-[#d4dce7] dark:stroke-[#1d2a3d]"
-            />
-          </pattern>
         </defs>
-
-        {/* 1 — base field */}
-        <rect width={VIEW.w} height={VIEW.h} className="fill-[#f4f7fb] dark:fill-[#0b1220]" />
-
-        {/* 2 — geographic grid. The furthest layer, so it barely moves; it is
-            what the closer layers are seen to move against. Oversized and
-            offset so its own edge cannot travel into view. */}
-        <g ref={setLayer[0]}>
-          <rect
-            x={-40}
-            y={-40}
-            width={VIEW.w + 80}
-            height={VIEW.h + 80}
-            fill="url(#km-grid)"
-            opacity="0.7"
-          />
-
-          {/* Low ground, on the deepest layer so it sits under everything and
-              barely moves — ground should not parallax like a road. */}
-          {TERRAIN.map((d, i) => (
-            <path
-              key={`terrain-${i}`}
-              d={d}
-              className="fill-[#e6edf6] dark:fill-[#101c2e]"
-              opacity="0.5"
-            />
-          ))}
-
-          {/* Upazila divisions. Dashed hairlines, the faintest strokes here. */}
-          {BOUNDARIES.map((d, i) => (
-            <path
-              key={`bound-${i}`}
-              d={d}
-              fill="none"
-              strokeWidth="1"
-              strokeDasharray="2 9"
-              className="stroke-[#a9b8cc] dark:stroke-[#2b3a51]"
-              opacity="0.55"
-            />
-          ))}
-        </g>
-
-        {/* 3 — urban blocks: density around the three larger towns */}
-        <g ref={setLayer[1]} className="fill-[#dbe3ee] dark:fill-[#16233a]">
-          {PLACES.flatMap((p, i) =>
-            // A deterministic scatter — same seed, same blocks, every render.
-            Array.from({ length: 5 }, (_, k) => {
-              const seed = i * 7 + k * 13
-              const w = 22 + ((seed * 11) % 26)
-              const h = 14 + ((seed * 7) % 18)
-              return (
-                <rect
-                  key={`${p.id}-${k}`}
-                  x={p.x + (((seed * 17) % 120) - 60)}
-                  y={p.y + (((seed * 23) % 90) - 45)}
-                  width={w}
-                  height={h}
-                  rx="2"
-                  opacity={0.55}
-                />
-              )
-            }),
-          )}
-
-          {/* Smaller blocks around the minor settlements. Same deterministic
-              scatter, two-thirds the size and half the opacity, so density
-              falls off away from the towns the way it actually does. */}
-          {MINOR.flatMap((m, i) =>
-            Array.from({ length: 3 }, (_, k) => {
-              const seed = i * 11 + k * 19
-              return (
-                <rect
-                  key={`minor-block-${i}-${k}`}
-                  x={m.at.x + (((seed * 13) % 74) - 37)}
-                  y={m.at.y + (((seed * 29) % 56) - 28)}
-                  width={12 + ((seed * 7) % 16)}
-                  height={9 + ((seed * 5) % 12)}
-                  rx="1.5"
-                  opacity={0.3}
-                />
-              )
-            }),
-          )}
-        </g>
-
-        {/* 4 — river: the Padma along the north-west, the Gorai to the south-east */}
-        <g ref={setLayer[2]} fill="none" strokeLinecap="round">
-          <path
-            d="M -40 150 C 180 96, 330 128, 470 212 S 690 300, 860 268 S 1120 214, 1260 246"
-            strokeWidth="26"
-            className="stroke-[#bcd7ee] dark:stroke-[#12405c]"
-            opacity="0.75"
-          />
-          <path
-            d="M -40 150 C 180 96, 330 128, 470 212 S 690 300, 860 268 S 1120 214, 1260 246"
-            strokeWidth="10"
-            className="stroke-[#8fc0e6] dark:stroke-[#1d6f96]"
-            opacity="0.6"
-          />
-          <path
-            d="M 700 400 C 790 470, 900 520, 1010 566 S 1180 640, 1250 700"
-            strokeWidth="14"
-            className="stroke-[#bcd7ee] dark:stroke-[#12405c]"
-            opacity="0.6"
-          />
-
-          {/* Tributaries. Same hue as the channels they feed, a fifth of the
-              width, so the water reads as a system rather than two stripes. */}
-          {TRIBUTARIES.map((d, i) => (
-            <path
-              key={`trib-${i}`}
-              d={d}
-              strokeWidth="4"
-              className="stroke-[#bcd7ee] dark:stroke-[#12405c]"
-              opacity="0.5"
-            />
-          ))}
-        </g>
-
-        {/* 5 — roads, in hierarchy order: lanes, then local roads, then trunk.
-               Painted lowest-first so the trunk network stays on top of its own
-               feeders, which is what makes the hierarchy legible rather than
-               just thinner. */}
-        <g ref={setLayer[3]} fill="none" strokeLinecap="round">
-          {LANES.map((d, i) => (
-            <path
-              key={`lane-${i}`}
-              d={d}
-              strokeWidth="1"
-              className="stroke-[#cfd8e4] dark:stroke-[#22334c]"
-              opacity="0.45"
-            />
-          ))}
-
-          {MINOR_ROADS.map((d, i) => (
-            <path
-              key={`minor-road-${i}`}
-              d={d}
-              strokeWidth="2.5"
-              className="stroke-[#cfd8e4] dark:stroke-[#22334c]"
-              opacity="0.8"
-            />
-          ))}
-
-          {ROADS.map((d, i) => (
-            <path
-              key={i}
-              d={d}
-              strokeWidth="7"
-              className="stroke-[#cfd8e4] dark:stroke-[#22334c]"
-            />
-          ))}
-          {ROADS.map((d, i) => (
-            <path
-              key={`inner-${i}`}
-              d={d}
-              strokeWidth="2.5"
-              className="stroke-[#e8eef6] dark:stroke-[#31465f]"
-            />
-          ))}
-        </g>
-
-        {/* 6 — secondary routes */}
-        <g ref={setLayer[4]} fill="none" strokeLinecap="round">
-          {ROUTES.map((d, i) => (
-            <path
-              key={i}
-              d={d}
-              strokeWidth="2.5"
-              strokeDasharray="10 12"
-              className="stroke-[#93b4d8] dark:stroke-[#2f6ea0]"
-              opacity="0.85"
-            />
-          ))}
-        </g>
-
-        {/* 7 — the focus light, travelling the journey.
-
-            This replaced two fixed pools of light, one over Sadar and one over
-            Bheramara. They were pinned to the artwork, so wherever the crop and
-            the parallax happened to put them they sat there for the life of the
-            page — and on a wide screen the Sadar one settled into the right of
-            the frame and read as a glow stuck in the corner rather than as
-            anything to do with the map.
-
-            One light now, and it belongs to the geography: it walks Daulatpur →
-            Bheramara → Mirpur → Kushtia Sadar → Kumarkhali → Khoksa along the
-            same Bézier curves the trunk roads are drawn from, positioned by how
-            far down the page the reader is.
-
-            Two nested groups because each carries a different transform and an
-            element only has one. The outer is the parallax layer, written by
-            the shared loop with every other layer at `DEPTH.glow`, so the light
-            drifts with the map and stays in register with the roads under it.
-            The inner is the journey position. Composing them by nesting is what
-            keeps both on the compositor. */}
-        <g ref={setLayer[5]}>
-          <g ref={focusRef}>
-            <circle r={FOCUS_RADIUS} fill="url(#km-focus)" />
-          </g>
-        </g>
-
-        {/* 8 — markers and labels.
-            Held at 0.8 so place names read as part of the backdrop rather than
-            competing with the hero copy sitting over them. */}
-        <g ref={setLayer[6]} opacity="0.8">
-          {/* Junctions, drawn before the settlements so a node sits over its
-              own road joint rather than under it. */}
-          {JUNCTIONS.map((j, i) => (
-            <circle
-              key={`junction-${i}`}
-              cx={j.x}
-              cy={j.y}
-              r="2.5"
-              className="fill-[#9db3cc] dark:fill-[#3d5372]"
-              opacity="0.7"
-            />
-          ))}
-
-          {/* Minor settlements. Roughly half the node and 60% the label of a
-              town, and dimmer — the six upazila seats have to stay readable as
-              the primary tier at a glance. */}
-          {MINOR.map((m) => (
-            <g key={m.name.en}>
-              <circle
-                cx={m.at.x}
-                cy={m.at.y}
-                r="3.5"
-                className="fill-[#9db3cc] dark:fill-[#3d5372]"
-              />
-              <circle
-                cx={m.at.x}
-                cy={m.at.y}
-                r="1.5"
-                className="fill-[#ffffff] dark:fill-[#0b1220]"
-              />
-              <text
-                x={m.at.x}
-                y={m.at.y - 9}
-                textAnchor="middle"
-                className="text-[10px] font-semibold tracking-wide fill-[#8ba0b8] dark:fill-[#4a627f]"
-              >
-                {L(m.name)}
-              </text>
-            </g>
-          ))}
-
-          {PLACES.map((p) => {
-            const isSadar = p.id === 'kushtia-sadar'
-            return (
-              <g key={p.id}>
-                {isSadar && (
-                  <circle
-                    cx={p.x}
-                    cy={p.y}
-                    r="26"
-                    className="fill-primary/20 animate-pulse-ring"
-                  />
-                )}
-                <circle
-                  cx={p.x}
-                  cy={p.y}
-                  r={isSadar ? 11 : 7}
-                  className={
-                    isSadar
-                      ? 'fill-primary'
-                      : 'fill-[#7ea6d4] dark:fill-[#4b87c4]'
-                  }
-                />
-                <circle
-                  cx={p.x}
-                  cy={p.y}
-                  r={isSadar ? 4.5 : 3}
-                  className="fill-[#ffffff] dark:fill-[#0b1220]"
-                />
-                <text
-                  x={p.x}
-                  y={p.y - (isSadar ? 24 : 18)}
-                  textAnchor="middle"
-                  className={cn(
-                    'text-[17px] font-bold tracking-wide',
-                    isSadar
-                      ? 'fill-[#1f4d80] dark:fill-[#9ec9f0]'
-                      : 'fill-[#5b7794] dark:fill-[#5f81a8]',
-                  )}
-                >
-                  {L(p.name)}
-                </text>
-              </g>
-            )
-          })}
-        </g>
-
-        {/* 9 — readability veil, so hero copy sits on calm ground */}
-        <rect width={VIEW.w} height={VIEW.h} fill="url(#km-veil)" />
+        <rect width="100%" height="100%" fill="url(#km-veil)" />
       </svg>
     </div>
   )

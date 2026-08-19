@@ -14,6 +14,7 @@ import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { SubmissionStatus } from '@/lib/submissions'
 import { cn } from '@/lib/utils'
+import { RP_POINTS } from '@/lib/format'
 
 /* ==========================================================================
  * The contributor dashboard's shared pieces.
@@ -37,7 +38,7 @@ export const CONTRIBUTE_NAV = [
   { to: '/contribute', label: 'Overview', icon: LayoutDashboard, end: true },
   { to: '/contribute/submissions', label: 'My contributions', icon: FileText },
   { to: '/contribute/submit', label: 'Submit information', icon: Plus },
-  { to: '/contribute/points', label: 'Points', icon: Sparkles },
+  { to: '/contribute/points', label: RP_POINTS, icon: Sparkles },
   { to: '/contribute/profile', label: 'Profile', icon: User },
 ] as const
 

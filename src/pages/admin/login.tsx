@@ -127,7 +127,7 @@ export default function AdminLoginPage() {
               <span>
                 You are signed in, but this account is not an ELAKAI
                 administrator. Your contributor dashboard is where your
-                submissions and points live.
+                submissions and RP Points live.
               </span>
             </p>
             <Link

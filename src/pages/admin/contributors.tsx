@@ -28,7 +28,7 @@ export default function AdminContributorsPage() {
       <div>
         <h1 className="text-title">Contributors</h1>
         <p className="mt-1 text-body-sm text-ink-muted">
-          Everyone with an ELAKAI account, ordered by points earned.
+          Everyone with an ELAKAI account, ordered by RP Points earned.
         </p>
       </div>
 
@@ -72,7 +72,7 @@ export default function AdminContributorsPage() {
                   <tr className="border-b border-line bg-surface-2">
                     <Th>Name</Th>
                     <Th>Email</Th>
-                    <Th align="right">Points</Th>
+                    <Th align="right">RP Points</Th>
                     <Th>Joined</Th>
                   </tr>
                 </thead>

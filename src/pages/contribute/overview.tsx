@@ -21,6 +21,7 @@ import {
 } from '@/lib/submissions'
 import { categoryLabel } from '@/lib/submission-fields'
 import { sectionLabel } from '@/lib/listings'
+import { RP_POINTS } from '@/lib/format'
 
 /**
  * Overview.
@@ -58,7 +59,7 @@ export default function ContributeOverviewPage() {
         <Stat label="Approved" value={stats.data?.approved} loading={stats.isPending} />
         <Stat label="Pending" value={stats.data?.pending} loading={stats.isPending} />
         <Stat label="Not accepted" value={stats.data?.rejected} loading={stats.isPending} />
-        <Stat label="Points" value={stats.data?.points} loading={stats.isPending} accent />
+        <Stat label={RP_POINTS} value={stats.data?.points} loading={stats.isPending} accent />
       </StatRow>
 
       <Card className="flex flex-wrap items-center justify-between gap-4 p-5">
@@ -66,7 +67,7 @@ export default function ContributeOverviewPage() {
           <p className="text-heading">Know somewhere that is missing?</p>
           <p className="mt-1 text-body-sm text-ink-muted">
             Add it and an administrator will check it. Approved information earns
-            you 50 points.
+            you 50 RP Points.
           </p>
         </div>
         <Button size="lg" asChild>

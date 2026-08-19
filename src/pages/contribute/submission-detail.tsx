@@ -194,7 +194,7 @@ function Outcome({ submission: s }: { submission: Submission }) {
         <p className="text-body-sm text-warning-ink">
           Your information has been submitted and is waiting for verification by
           an ELAKAI administrator. It is not on the public site yet, and no
-          points are awarded until it is approved.
+          RP Points are awarded until it is approved.
         </p>
       </Card>
     )
@@ -204,7 +204,7 @@ function Outcome({ submission: s }: { submission: Submission }) {
     return (
       <Card className="border-success/30 bg-success-soft p-4">
         <p className="text-body-sm font-bold text-success-ink">
-          Approved and published — 50 points awarded.
+          Approved and published — 50 RP Points awarded.
         </p>
         <p className="mt-1 text-meta text-success-ink/85">
           Approved on {formatDateTime(s.approvedAt ?? s.reviewedAt)}.
@@ -233,7 +233,7 @@ function Outcome({ submission: s }: { submission: Submission }) {
         <p className="mt-1.5 text-body-sm text-pretty text-danger-ink/90">{s.rejectionDetail}</p>
       )}
       <p className="mt-2.5 text-meta text-danger-ink/80">
-        Nothing was published and no points were awarded. If the reason is
+        Nothing was published and no RP Points were awarded. If the reason is
         something you can fix, you are welcome to submit it again.
       </p>
       <Button variant="secondary" size="sm" className="mt-3" asChild>

@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { useAccount } from '@/lib/auth'
 import { requireSupabase } from '@/lib/supabase'
 import { myContributionStats, submissionError } from '@/lib/submissions'
+import { RP_POINTS } from '@/lib/format'
 
 /* ==========================================================================
  * Profile.
@@ -77,7 +78,7 @@ export default function ContributeProfilePage() {
           <Stat label="Contributions" value={stats.data?.total} loading={stats.isPending} />
           <Stat label="Approved" value={stats.data?.approved} loading={stats.isPending} />
           <Stat label="Pending" value={stats.data?.pending} loading={stats.isPending} />
-          <Stat label="Points" value={stats.data?.points} loading={stats.isPending} accent />
+          <Stat label={RP_POINTS} value={stats.data?.points} loading={stats.isPending} accent />
         </StatRow>
       )}
 

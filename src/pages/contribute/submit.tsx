@@ -815,7 +815,7 @@ function Submitted({
             <>
               <strong className="text-ink">{title}</strong> has been sent for
               verification. It becomes public only after an ELAKAI administrator
-              approves it, and you receive 50 points if they do.
+              approves it, and you receive 50 RP Points if they do.
             </>
           )}
         </p>

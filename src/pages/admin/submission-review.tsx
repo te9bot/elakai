@@ -100,9 +100,9 @@ export default function AdminSubmissionReviewPage() {
          * admin who got there first. Saying "Approved, +50" here would be the
          * lie the unique index exists to prevent, so it says what happened.
          */
-        toast('That submission had already been reviewed. No points were awarded again.', 'info')
+        toast('That submission had already been reviewed. No RP Points were awarded again.', 'info')
       } else {
-        toast(`Approved. It is now public, and 50 points went to the contributor.`, 'success')
+        toast(`Approved. It is now public, and 50 RP Points went to the contributor.`, 'success')
       }
       navigate('/admin/submissions')
     },
@@ -114,7 +114,7 @@ export default function AdminSubmissionReviewPage() {
       rejectSubmission(id, reason, detail),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['admin'] })
-      toast('Rejected. Nothing was published and no points were awarded.', 'success')
+      toast('Rejected. Nothing was published and no RP Points were awarded.', 'success')
       navigate('/admin/submissions')
     },
     onError: (error) => toast(submissionError(error), 'error'),
@@ -463,7 +463,7 @@ export default function AdminSubmissionReviewPage() {
               </div>
 
               <p className="mt-3 text-meta text-ink-subtle">
-                Approving publishes this on ELAKAI and awards 50 points.
+                Approving publishes this on ELAKAI and awards 50 RP Points.
                 Rejecting publishes nothing and awards none.
               </p>
             </Card>
@@ -478,7 +478,7 @@ export default function AdminSubmissionReviewPage() {
         open={confirmApprove}
         onOpenChange={setConfirmApprove}
         title="Approve this submission?"
-        description={`This will publish the information on ELAKAI and award 50 points to ${
+        description={`This will publish the information on ELAKAI and award 50 RP Points to ${
           s.contributor?.fullName || s.contributor?.email || 'the contributor'
         }.`}
         confirmLabel="Approve and publish"
@@ -520,7 +520,7 @@ function ContributorCard({ submission: s }: { submission: Submission }) {
             <dd className="break-all text-body-sm">{c.email}</dd>
           </div>
           <div>
-            <dt className="text-meta font-bold text-ink-subtle">Points</dt>
+            <dt className="text-meta font-bold text-ink-subtle">RP Points</dt>
             <dd className="tnum text-body-sm font-bold text-primary">{c.points}</dd>
           </div>
           {c.joinedAt && (
@@ -564,7 +564,7 @@ function ReviewedCard({ submission: s }: { submission: Submission }) {
       {s.status === 'approved' ? (
         <>
           <p className="mt-2 text-body-sm font-semibold text-success-ink">
-            Published, and 50 points awarded.
+            Published, and 50 RP Points awarded.
           </p>
           {s.publishedListingId && (
             <Button variant="secondary" size="sm" className="mt-3" block asChild>
@@ -637,7 +637,7 @@ function RejectDialog({
         <DialogHeader>
           <DialogTitle className="text-heading">Reject this submission?</DialogTitle>
           <DialogDescription>
-            Nothing is published and no points are awarded. The contributor sees
+            Nothing is published and no RP Points are awarded. The contributor sees
             the reason you choose.
           </DialogDescription>
         </DialogHeader>

@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAccount } from '@/lib/auth'
 import { listMyPoints, myContributionStats, submissionError } from '@/lib/submissions'
+import { rpPoints } from '@/lib/format'
 
 /* ==========================================================================
  * Points.
@@ -61,7 +62,7 @@ export default function ContributePointsPage() {
       <Card className="flex flex-wrap items-end justify-between gap-4 p-6">
         <div>
           <p className="text-meta font-semibold uppercase tracking-wide text-ink-subtle">
-            Total points
+            Total RP Points
           </p>
           {stats.isPending ? (
             <Skeleton className="mt-2 h-12 w-24" />
@@ -72,7 +73,7 @@ export default function ContributePointsPage() {
           )}
         </div>
         <p className="max-w-[34ch] text-meta text-pretty text-ink-subtle">
-          Every submission an administrator approves earns 50 points. Pending and
+          Every submission an administrator approves earns 50 RP Points. Pending and
           refused submissions earn none.
         </p>
       </Card>
@@ -93,8 +94,8 @@ export default function ContributePointsPage() {
             </div>
           ) : entries.length === 0 ? (
             <EmptyState
-              title="No points yet"
-              body="Points arrive when an administrator approves something you submitted. Nothing is deducted for a submission that is not accepted."
+              title="No RP Points yet"
+              body="RP Points arrive when an administrator approves something you submitted. Nothing is deducted for a submission that is not accepted."
               actionLabel="Submit information"
               actionTo="/contribute/submit"
             />
@@ -109,7 +110,7 @@ export default function ContributePointsPage() {
                     className="tnum shrink-0 text-body font-extrabold text-primary"
                     // The sign is meaning, not decoration: a future correcting
                     // entry would be negative and has to read as one.
-                    aria-label={`${entry.points > 0 ? 'plus' : 'minus'} ${Math.abs(entry.points)} points`}
+                    aria-label={`${entry.points > 0 ? 'plus' : 'minus'} ${rpPoints(Math.abs(entry.points))}`}
                   >
                     {entry.points > 0 ? '+' : ''}
                     {entry.points}

@@ -153,3 +153,39 @@ export function artGradient(
   const [from, to] = ART_PALETTE[(paletteIndex ?? seed) % ART_PALETTE.length]
   return { from, to, angle: 120 + ((seed * 37) % 120) }
 }
+
+/* ------------------------------------------------------------------ */
+/* Contribution reward                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What a contributor's balance is called, everywhere it is shown.
+ *
+ * ONE DEFINITION, BECAUSE IT IS A PRODUCT TERM AND NOT A WORD. The reward was
+ * "points" in about a dozen places written at different times — a stat label, a
+ * nav item, three pieces of body copy, two admin toasts, a table heading and an
+ * aria-label. Renaming it by hand across those is how half of them end up
+ * saying something else a release later, which for the one number a contributor
+ * actually cares about reads as two different currencies.
+ *
+ * The database is deliberately untouched: `profiles.points` and the ledger's
+ * `points` column keep their names, and so does every query and type. This is
+ * what the reward is *called*, not what it is stored as, and conflating the two
+ * would mean a migration every time the wording changed.
+ */
+export const RP_POINTS = 'RP Points'
+
+/**
+ * The reward with its count, pluralised.
+ *
+ * English only, because these strings are: the contributor flow's chrome is
+ * translated but its body copy is not, and inventing a Bangla plural rule here
+ * would be worse than leaving the term as the proper noun it is.
+ *
+ * `Math.abs` so a correcting entry of -1 reads "-1 RP Point" rather than
+ * "-1 RP Points" — the ledger already renders negative values and the sign is
+ * meaning there, not decoration.
+ */
+export function rpPoints(count: number): string {
+  return `${count} RP ${Math.abs(count) === 1 ? 'Point' : 'Points'}`
+}
