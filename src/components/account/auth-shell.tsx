@@ -141,7 +141,33 @@ export function Field({
   children: React.ReactNode
 }) {
   return (
-    <div className="space-y-1.5">
+    /*
+     * Same invalid treatment as the `Field` in components/forms/fields.tsx.
+     *
+     * There are two components called Field in this codebase — this one, used
+     * by the auth pages, and that one, used by contribute and admin. They do
+     * the same job and neither knows about the other, which is worth writing
+     * down because it is exactly the kind of duplication that lets a fix land
+     * on one form and silently miss the other. This change was made twice for
+     * that reason; merging them is a separate job.
+     *
+     * A failed field used to change nothing but the colour of the message
+     * under it, so the only evidence of which field was wrong was a line of
+     * small red text. The control now carries the state too.
+     *
+     * The arbitrary variant rather than a rule in index.css because Tailwind
+     * emits `.border-line` into the utilities layer, and layer order beats
+     * specificity — three plain-CSS versions were tried against the browser
+     * and none of them moved the computed border off rgb(225,231,239).
+     */
+    <div
+      data-invalid={error ? 'true' : undefined}
+      className={cn(
+        'space-y-1.5',
+        error &&
+          '[&_input]:!border-danger [&_input]:focus-visible:!ring-danger/25 [&_textarea]:!border-danger',
+      )}
+    >
       <label htmlFor={id} className="block text-meta font-bold text-ink-muted">
         {label}
       </label>

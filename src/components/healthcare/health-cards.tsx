@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom'
 import { ArrowRight, GraduationCap, MapPin } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Rating } from '@/components/ui/rating'
 import { CallButton } from '@/components/call-button'
@@ -38,7 +37,6 @@ function CardShell({
   action: React.ReactNode
   className?: string
 }) {
-  const { t } = useI18n()
 
   return (
     <Card className={cn('list-perf overflow-hidden p-0', className)}>
@@ -58,21 +56,29 @@ function CardShell({
           {children}
         </div>
 
+        {/* Shown at every width now, not `sm` and up. It is the only thing
+            telling a reader the row is pressable, and the phone is where that
+            mattered most and where it was hidden. */}
         <ArrowRight
-          className="mt-1 hidden size-4 shrink-0 self-center text-ink-subtle transition-transform group-hover:translate-x-0.5 sm:block"
+          className="mt-1 size-4 shrink-0 self-center text-ink-subtle transition-transform group-hover:translate-x-0.5"
           aria-hidden="true"
         />
       </Link>
 
-      <div className="flex gap-2 border-t border-line p-3">
-        {action}
-        <Button asChild variant="secondary" size="md" className="flex-1">
-          <Link to={to}>
-            {t('card.details')}
-            <ArrowRight />
-          </Link>
-        </Button>
-      </div>
+      {/*
+       * The footer is only drawn when there is genuinely a second action.
+       *
+       * It used to always render, and it always contained a full-width
+       * "Details" button pointing at `to` — the same destination the entire
+       * card above it already links to. So every row carried two links to one
+       * place, the second one boxed in its own bordered container, which is
+       * both the extra container the brief asks to remove and a real
+       * annoyance in a screen reader's link list.
+       *
+       * What is left in here is the thing that is not a duplicate: `action`,
+       * which on a facility is the call button — a different verb entirely.
+       */}
+      {action ? <div className="flex gap-2 border-t border-line p-3">{action}</div> : null}
     </Card>
   )
 }

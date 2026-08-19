@@ -60,7 +60,7 @@ export function Field({
   error?: string
   required?: boolean
   wide?: boolean
-  children: (props: { id: string; describedBy?: string }) => ReactNode
+  children: (props: { id: string; describedBy?: string; invalid?: true }) => ReactNode
 }) {
   const id = useId()
   const hintId = hint ? `${id}-hint` : undefined
@@ -68,7 +68,54 @@ export function Field({
   const describedBy = [errorId, hintId].filter(Boolean).join(' ') || undefined
 
   return (
-    <div className={cn('min-w-0', wide && 'sm:col-span-2')}>
+    /*
+     * `data-invalid` marks the whole field, and index.css colours the control
+     * inside it.
+     *
+     * A failed field used to change nothing but the colour of the message
+     * underneath it. On a short form that is survivable; on the contribute
+     * form, which is long enough to scroll several times, it meant the only
+     * evidence of which field was wrong was a line of small red text that
+     * might be off screen. The control itself now carries the state, so a
+     * scan finds it.
+     *
+     * Driven from here rather than from each control because there are 46
+     * `<Field>` call sites and they should not each have to remember. Call
+     * sites that want `aria-invalid` on the element itself get `invalid`
+     * passed to the render prop.
+     */
+    <div
+      data-invalid={error ? 'true' : undefined}
+      className={cn(
+        'min-w-0',
+        /*
+         * The invalid border is generated as a Tailwind arbitrary variant
+         * rather than written as a rule in index.css, and that is not a style
+         * preference — it is the only version that works.
+         *
+         * Tailwind emits `.border-line` into the utilities layer, which comes
+         * after everything in `@layer base`, and layer order settles the
+         * cascade before specificity is consulted. Three plain-CSS attempts
+         * were written and checked in the browser: a higher-specificity
+         * `border-color` rule, a rebinding of the `--line` token, and the same
+         * rule with `!important`. All three matched the element and went live
+         * in the stylesheet, and in all three the computed border stayed
+         * rgb(225,231,239).
+         *
+         * Written this way the rule is compiled into the utilities layer
+         * alongside the class it needs to beat, so it lands where the cascade
+         * can actually see it.
+         */
+        error &&
+          cn(
+            '[&_input]:!border-danger [&_select]:!border-danger [&_textarea]:!border-danger',
+            // The ring follows the border, or a focused invalid field would
+            // announce itself in two different colours at once.
+            '[&_input]:focus-visible:!ring-danger/25 [&_textarea]:focus-visible:!ring-danger/25',
+          ),
+        wide && 'sm:col-span-2',
+      )}
+    >
       <label htmlFor={id} className="block text-meta font-bold text-ink-muted">
         {label}
         {required && (
@@ -78,7 +125,9 @@ export function Field({
           </span>
         )}
       </label>
-      <div className="mt-1.5">{children({ id, describedBy })}</div>
+      <div className="mt-1.5">
+        {children({ id, describedBy, invalid: error ? true : undefined })}
+      </div>
       {error ? (
         <p id={errorId} className="mt-1.5 text-meta font-semibold text-danger">
           {error}
