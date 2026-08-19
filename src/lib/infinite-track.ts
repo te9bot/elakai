@@ -94,6 +94,27 @@ const MAX_FLING = 5200
 /** Page scroll speed (px/s) that saturates the scroll boost. */
 const SCROLL_REFERENCE = 1400
 
+/**
+ * How far the drift is allowed to fall while the cursor is over the band.
+ *
+ * A fraction, not zero. Stopping the loop under the cursor is the obvious
+ * reading of "pause on hover" and it is the wrong one here: the band is the
+ * only thing on the page that says the section is alive, and freezing it the
+ * moment somebody looks at it reads as a stall rather than as a courtesy. A
+ * third of normal is slow enough to read a chip and aim at it.
+ */
+const MIN_HOVER_DRIFT = 0.34
+
+/** Seconds for the hover damp to reach ~63% of its target. Slow enough to feel
+ *  like the band easing off rather than a switch being thrown. */
+const HOVER_TAU = 0.26
+
+/** Cursor pixels to band pixels-per-second. Small: this is a lean, not a drag. */
+const POINTER_GAIN = 2.6
+
+/** How quickly the cursor's push decays once the hand stops moving. */
+const POINTER_TAU = 0.34
+
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v)
 
 /** Longest a hand-back may take when the gesture was cut short rather than released. */
@@ -162,6 +183,30 @@ export class InfiniteTrackEngine {
   private scrollAt = 0
   private scrollRaw = 0
   private scrollSmooth = 0
+
+  /* -- hover coupling, mouse only --------------------------------------- */
+  /*
+   * Two pointer effects, both deliberately small, and both fine-pointer only.
+   *
+   * `hover` eases 0..1 while the cursor is over the band and damps the drift —
+   * the strip slows so a chip can be read and aimed at, and it is a slow rather
+   * than a stop because a marquee that halts under the cursor reads as broken
+   * rather than as attentive.
+   *
+   * `vPointer` is the cursor's own horizontal speed, smoothed, folded into the
+   * same push that page scroll already uses. Moving the mouse across the band
+   * leans the content the way the hand went and it settles back.
+   *
+   * Neither exists on touch. There is no hovering cursor to read, and the
+   * listener would cost work on every frame of a scroll to move nothing — the
+   * profiling earlier in this project measured pointermove as the single
+   * largest source of dispatch on a phone, so it is not attached there at all.
+   */
+  private hover = 0
+  private hoverTarget = 0
+  private vPointer = 0
+  private lastPointerX: number | null = null
+  private pointerFrame = 0
 
   /** Watches the measured copy of every track. Opened on first registration. */
   private sizes: ResizeObserver | null = null
@@ -317,6 +362,56 @@ export class InfiniteTrackEngine {
     surface.addEventListener('click', this.onClick, true)
     surface.addEventListener('dragstart', this.onDragStart)
     document.addEventListener('visibilitychange', this.onVisibility)
+
+    // Mouse only. `(pointer: fine)` is a capability check, not a preference —
+    // a coarse pointer has no hover state to read and attaching this there
+    // would be per-frame work that can never move anything.
+    if (window.matchMedia?.('(pointer: fine)').matches) {
+      surface.addEventListener('pointerenter', this.onSurfaceEnter)
+      surface.addEventListener('pointerleave', this.onSurfaceLeave)
+    }
+  }
+
+  /* -- hover ------------------------------------------------------------ */
+
+  private onSurfaceEnter = () => {
+    this.hoverTarget = 1
+    this.lastPointerX = null
+    // Attached on enter and dropped on leave, so the handler does not exist
+    // while the cursor is anywhere else on the page.
+    this.surface?.addEventListener('pointermove', this.onHoverMove, { passive: true })
+    this.start()
+  }
+
+  private onSurfaceLeave = () => {
+    this.hoverTarget = 0
+    this.lastPointerX = null
+    this.surface?.removeEventListener('pointermove', this.onHoverMove)
+    if (this.pointerFrame) {
+      cancelAnimationFrame(this.pointerFrame)
+      this.pointerFrame = 0
+    }
+  }
+
+  /**
+   * One sample per frame, not one per event.
+   *
+   * `pointermove` fires far faster than the compositor consumes it, and every
+   * sample here would otherwise do arithmetic that only one of them can affect.
+   * The coalescing is the same shape the map's pointer parallax uses.
+   */
+  private onHoverMove = (e: PointerEvent) => {
+    if (this.pointerFrame) return
+    const x = e.clientX
+    this.pointerFrame = requestAnimationFrame(() => {
+      this.pointerFrame = 0
+      if (this.lastPointerX !== null) {
+        // Instantaneous px/frame, folded in gently so a flick of the wrist
+        // leans the band rather than throwing it.
+        this.vPointer += (x - this.lastPointerX) * POINTER_GAIN
+      }
+      this.lastPointerX = x
+    })
   }
 
   /**
@@ -337,6 +432,9 @@ export class InfiniteTrackEngine {
       surface.removeEventListener('pointerdown', this.onPointerDown)
       surface.removeEventListener('click', this.onClick, true)
       surface.removeEventListener('dragstart', this.onDragStart)
+      surface.removeEventListener('pointerenter', this.onSurfaceEnter)
+      surface.removeEventListener('pointerleave', this.onSurfaceLeave)
+      surface.removeEventListener('pointermove', this.onHoverMove)
       delete surface.dataset.dragging
     }
     document.removeEventListener('visibilitychange', this.onVisibility)
@@ -426,10 +524,22 @@ export class InfiniteTrackEngine {
         this.vUser = 0
       }
 
+      // Hover eases in and out rather than switching, so the slow-down is
+      // something the band does and not something that happens to it.
+      this.hover += (this.hoverTarget - this.hover) * (1 - decay(dt, HOVER_TAU))
+      this.vPointer *= decay(dt, POINTER_TAU)
+      if (Math.abs(this.vPointer) < 0.5) this.vPointer = 0
+
+      // Never below MIN_HOVER_DRIFT of normal: a marquee that stops dead under
+      // the cursor reads as broken, and the loop has to stay visibly alive
+      // while somebody decides which chip to press.
+      const damp = 1 - this.hover * (1 - MIN_HOVER_DRIFT)
+
       const auto = 1 - this.w
       for (const track of this.tracks) {
         const v =
-          auto * this.drift(track, boost) + this.w * this.vUser * track.spec.dragMultiplier
+          auto * (this.drift(track, boost) * damp + this.vPointer * track.spec.dragMultiplier) +
+          this.w * this.vUser * track.spec.dragMultiplier
         track.offset += v * dt
       }
     }

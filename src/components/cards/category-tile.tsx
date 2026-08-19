@@ -30,9 +30,25 @@ export function CategoryChip({
       className={cn(
         'inline-flex items-center gap-2 rounded-pill border border-line bg-surface',
         'font-semibold text-ink shadow-card',
+        /*
+         * The lift.
+         *
+         * `translate3d` rather than `-translate-y-0.5` so the hovered pill gets
+         * its own compositor layer for the 150ms it is raised, instead of
+         * asking the browser to re-lay-out a chip that is already moving
+         * horizontally inside a marquee. `scale` is 1.03 — enough to register
+         * as a response, small enough that the pill does not visibly grow into
+         * its neighbours in a row that is 12px apart.
+         *
+         * Paired with the band's hover damping in lib/infinite-track.ts: the
+         * strip slows to a third while the cursor is over it, so this is a
+         * target that has already stopped running away by the time the lift
+         * happens.
+         */
         'transition-[transform,box-shadow,border-color] duration-150 ease-out',
-        'hover:border-primary/40 hover:shadow-card-hover hover:-translate-y-0.5',
-        'active:translate-y-0',
+        'hover:border-primary/40 hover:shadow-card-hover',
+        'hover:[transform:translate3d(0,-2px,0)_scale(1.03)]',
+        'active:[transform:translate3d(0,0,0)_scale(1)]',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
         size === 'md' ? 'h-12 px-4 text-body-sm' : 'h-10 px-3.5 text-meta',
         className,
