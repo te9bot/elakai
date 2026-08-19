@@ -1,20 +1,16 @@
 import { Fragment, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MapPin, ShieldCheck } from 'lucide-react'
+import { MapPin } from 'lucide-react'
 import { m, useScroll, useSpring, useTransform, type Variants } from 'framer-motion'
 
 import { useReducedMotion } from '@/lib/motion'
 
 import { SearchBar } from '@/components/search/search-bar'
-import { CategoryChip } from '@/components/cards/category-tile'
 import { HeroEmergency } from '@/components/cards/emergency-card'
 
-import { InfiniteBand, InfiniteHorizontalTrack } from '@/components/infinite-track'
 import { CountUp } from '@/components/count-up'
-import { HOME_CHIP_IDS } from '@/data/categories'
 import { HERO_EMERGENCY_IDS } from '@/data/emergency'
-import type { CategoryId } from '@/data/types'
-import { useCoverage, useEmergency, useStats } from '@/hooks/use-queries'
+import { useEmergency, useStats } from '@/hooks/use-queries'
 import { useIsDesktop, useIsTablet } from '@/hooks/use-media-query'
 import { useI18n } from '@/lib/i18n'
 
@@ -134,11 +130,6 @@ export function HomeHero({ isPrecise }: { isPrecise: boolean }) {
 
   const emergency = useEmergency()
   const { data: counts } = useStats()
-  // The strip's content, from the same resolver the coverage band reads. It is
-  // seeded so the hero never paints an empty strip, and re-measured if a later
-  // answer differs — see hooks/use-queries.ts.
-  const { data: coverage } = useCoverage()
-  const covering = coverage.covering
   const heroRef = useRef<HTMLElement>(null)
 
   /* -- Scroll-away parallax ------------------------------------------------
@@ -189,7 +180,6 @@ export function HomeHero({ isPrecise }: { isPrecise: boolean }) {
   // hero's foreground rates, which still pull ahead of that backdrop.
   // `glowY` went with the two floating glow blobs it used to drive; the map's
   // focus light is positioned by geography now, not by this section's progress.
-  const stripY = useTransform(scrollYProgress, [0, 1], [0, -18 * depth])
   const copyY = useTransform(scrollYProgress, [0, 1], [0, -46 * depth])
   const panelY = useTransform(scrollYProgress, [0, 1], [0, -92 * depth])
 
@@ -306,9 +296,13 @@ export function HomeHero({ isPrecise }: { isPrecise: boolean }) {
             }
             className="min-w-0 lg:col-start-1 lg:row-start-1"
           >
+            {/* Context, not a component. This was a pill with a border, a
+                surface fill and a card shadow — three layers of chrome around
+                two words, sitting directly above the largest type on the page
+                and competing with it. It is a caption; it now looks like one. */}
             <m.span
               variants={rise}
-              className="inline-flex items-center gap-2 rounded-pill border border-line bg-surface px-3.5 py-1.5 text-meta font-bold text-ink-muted shadow-card"
+              className="inline-flex items-center gap-2 text-micro uppercase text-ink-subtle"
             >
               {isPrecise ? (
                 // A live fix earns a live indicator; a default one does not.
@@ -334,13 +328,11 @@ export function HomeHero({ isPrecise }: { isPrecise: boolean }) {
               {t('home.hero.sub')}
             </m.p>
 
-            <m.div variants={lift} className="group relative mt-6 max-w-xl sm:mt-7">
-              {/* Soft aura, not a shadow: it sits behind the bar and only shows
-                  itself while the field has focus. */}
-              <div
-                aria-hidden="true"
-                className="glow-primary pointer-events-none absolute -inset-6 -z-10 opacity-0 transition-opacity duration-500 group-focus-within:opacity-100"
-              />
+            <m.div variants={lift} className="relative mt-6 max-w-xl sm:mt-7">
+              {/* The focus aura is gone. A field that already carries the
+                  heaviest shadow on the page does not also need a glow to say
+                  it has focus — the ring does that, and it says it to keyboard
+                  users too. */}
               <SearchBar
                 value={query}
                 onChange={setQuery}
@@ -356,27 +348,27 @@ export function HomeHero({ isPrecise }: { isPrecise: boolean }) {
             style={par(panelY)}
             className="relative min-w-0 lg:col-start-2 lg:row-start-1 lg:row-span-3"
           >
-            <div
-              aria-hidden="true"
-              className="glow-danger pointer-events-none absolute -inset-8 -z-10 animate-float-alt"
-            />
+            {/* A drifting red glow used to sit behind this panel on a `float`
+                loop. It was atmosphere applied to the one element on the page
+                whose job is to be unambiguous, and it ran forever whether or
+                not anyone was looking at it. The panel says "emergency" with a
+                rule and an icon now. */}
             <HeroEmergency contacts={heroContacts} />
           </m.div>
 
-          {/* Quick categories — the fastest path for someone who cannot type
-              fast, so on a phone they scroll sideways rather than wrapping to
-              four rows and pushing everything below them off the screen. */}
-          <m.nav
-            variants={column}
-            aria-label={t('home.hero.chips.label')}
-            className="rail rail-bleed min-w-0 lg:col-start-1 lg:row-start-2 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0 lg:pb-0"
-          >
-            {HOME_CHIP_IDS.map((id) => (
-              <m.span key={id} variants={rise} className="inline-flex">
-                <CategoryChip id={id} />
-              </m.span>
-            ))}
-          </m.nav>
+          {/* The quick-category rail stood here and has been removed.
+
+             HOME_CHIP_IDS is ambulance, hospital, pharmacy, blood-bank. The
+             emergency panel immediately above it calls ambulance, hospital and
+             blood bank. So three of the four chips repeated, in the same
+             script and at a similar weight, something the reader had already
+             been offered six inches higher up — and the two rows did different
+             things on press, which is the worst version of that: the chip goes
+             to a category listing, the panel dials a phone.
+
+             Categories are not lost. The home page renders CategoryTile in its
+             own section below, which is where browsing belongs; the hero is for
+             the one primary action, which is search. */}
 
           <m.p
             variants={rise}
@@ -401,7 +393,18 @@ export function HomeHero({ isPrecise }: { isPrecise: boolean }) {
         </m.div>
       </div>
 
-      {/* ---- Covering --------------------------------------------------- */}
+      {/* ---- The covering band used to run here, and does not any more. ----
+          It rendered `CategoryChip` on a marquee with `tabIndex={-1}` — the
+          same component, at the same size, as the interactive chip row twelve
+          lines above it. Two rows of identical-looking chips, one you can press
+          and one you cannot, stacked inside the section that is supposed to
+          establish what to do first. That is the redundancy the brief asks to
+          remove, not a layer of depth.
+
+          Coverage itself is not lost: the home page still carries a coverage
+          band further down, which is where the district's scope belongs.
+          Removing this one also takes three continuously-animating wide
+          composited layers out of the first screen. */}
       {/* The one part of the hero that keeps moving after everything has
           settled. It runs on its own clock: the entrance has finished, the
           parallax only nudges it, and the loop never stops or resets.
@@ -412,37 +415,6 @@ export function HomeHero({ isPrecise }: { isPrecise: boolean }) {
           back into the drift within a beat. The wider, faster reading of the
           same gesture is the coverage band further down the page; this one is
           the statement, that one is the scope. */}
-      <m.div
-        style={par(stripY)}
-        className="relative border-t border-line bg-gradient-to-r from-surface via-surface-2/60 to-surface"
-      >
-        <div className="container flex items-center gap-2 pb-1.5 pt-4">
-          <ShieldCheck className="size-3.5 text-success" aria-hidden="true" />
-          <span className="text-micro uppercase tracking-[0.14em] text-ink-subtle">
-            {t('home.hero.marquee')}
-          </span>
-        </div>
-
-        {/* ~70px/s: slow enough to read a chip as it passes, quick enough not
-            to look stalled. The scroll boost is deliberately the smallest on
-            the page — this strip sits directly under the copy, and a band that
-            lurches while someone is still reading the headline above it is a
-            distraction rather than depth.
-
-            The numbers here are the *only* thing that distinguishes this band
-            from the coverage band further down. Both run the same engine over
-            the same kind of array; this one is configured editorial, that one
-            energetic. Neither knows how many items it holds. */}
-        <InfiniteBand glide={0.5} handover={0.42} scrollBoost={44}>
-          <InfiniteHorizontalTrack
-            items={covering}
-            speed={70}
-            gap="0.6rem"
-            className="pb-4 pt-1"
-            renderItem={(id: CategoryId) => <CategoryChip id={id} size="sm" tabIndex={-1} />}
-          />
-        </InfiniteBand>
-      </m.div>
     </section>
   )
 }

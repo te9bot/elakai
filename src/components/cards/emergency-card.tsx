@@ -167,25 +167,42 @@ export function HeroEmergency({
   return (
     <aside
       aria-labelledby="hero-emergency-title"
-      // Glass earns its keep here specifically: this panel sits over the
-      // hero's grid and colour washes, so there is something behind it worth
-      // refracting. It is one element, so the blur cost is paid once.
-      className={cn('rounded-card border glass-danger p-4 sm:p-5', className)}
+      /*
+       * ONE LOUD THING, NOT FOUR.
+       *
+       * This panel used to be a tinted glass card holding three saturated red
+       * fills. On the first screen of a phone that read as an alarm: the three
+       * most vivid surfaces on the page, all the same weight, inside a fourth
+       * red-tinted container — while the brand blue appeared only on the search
+       * button. The colour hierarchy was inverted, and nothing inside the panel
+       * told you which of the three to press.
+       *
+       * Emergency access is not demoted — this is a civic utility and these are
+       * the numbers that matter most. It is made *legible* instead of loud: a
+       * plain surface with a single red accent rule, and the hierarchy carried
+       * by one filled button (the first contact, which HERO_EMERGENCY_IDS pins
+       * to ambulance) against two quiet ones. Red now means "this one", which
+       * is what it could not mean when everything was red.
+       *
+       * The glass went with it. `backdrop-filter` on this panel was sampling
+       * the map behind it on every frame it moved, and a flat surface reads
+       * more urgent here than a refracted one.
+       */
+      className={cn(
+        'rounded-card border border-danger/20 bg-surface/95 p-4 sm:p-5',
+        'shadow-card',
+        className,
+      )}
     >
       <h2
         id="hero-emergency-title"
-        className="flex items-center gap-2 text-meta font-bold uppercase tracking-wide text-danger-ink"
+        className="flex items-center gap-2 text-micro uppercase text-danger-ink"
       >
-        <span className="relative grid size-4 shrink-0 place-items-center">
-          {/* A slow beacon, not a flash. This panel has to read as urgent
-              without becoming the thing you look away from. */}
-          <span
-            aria-hidden="true"
-            className="absolute size-4 rounded-full bg-danger/25 animate-pulse-ring"
-          />
-          <Siren className="relative size-4 text-danger" aria-hidden="true" />
-        </span>
+        <Siren className="size-4 shrink-0 text-danger" aria-hidden="true" />
         {t('home.hero.emergency.title')}
+        {/* The accent rule. One hairline of brand-danger doing the work four
+            filled surfaces were doing before. */}
+        <span aria-hidden="true" className="ml-1 h-px flex-1 bg-danger/25" />
       </h2>
 
       <ul className="mt-3 grid grid-cols-3 gap-2 lg:grid-cols-1 lg:gap-2.5">
@@ -212,7 +229,14 @@ export function HeroEmergency({
             <CallButton
               phone={contact.phone}
               label={L(contact.name)}
-              variant="danger"
+              /*
+               * The first contact is the loud one. HERO_EMERGENCY_IDS pins that
+               * slot to ambulance, and the hero maps over that order rather
+               * than over whatever the query returns, so this is a stable
+               * decision about which number matters most and not a decision
+               * about which row happened to arrive first.
+               */
+              variant={i === 0 ? 'danger' : 'soft-danger'}
               size="lg"
               block
               showIcon={false}
