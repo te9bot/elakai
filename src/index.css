@@ -59,6 +59,21 @@
        the light canvas looks like a scratch at the same value in dark mode. */
     --glass-highlight: 0 0% 100%;
     --glass-highlight-alpha: 0.55;
+
+    /* ----------------------------------------------------------------
+       Map
+       ----------------------------------------------------------------
+       How present the Kushtia backdrop is. One number, in one place,
+       rather than an opacity guessed at each call site.
+
+       The backdrop is real geography now, which made it markedly more
+       legible than the invented artwork it replaced — real road networks
+       have far more line in them than five drawn Béziers, and at the first
+       attempt the place names behind the hero were competing with the
+       headline for attention. The brief for it is "discovered rather than
+       announced", so the geometry stays exactly as it is and the whole
+       layer is dialled back instead. */
+    --map-opacity: 0.5;
   }
 
   .dark {
@@ -93,6 +108,25 @@
 
     --glass-highlight: 0 0% 100%;
     --glass-highlight-alpha: 0.09;
+
+    /* Slightly stronger than light, because the dark surface gives the same
+       lines less contrast to work with — the same presence, not more. */
+    --map-opacity: 0.62;
+  }
+
+  /*
+     Quieter on a phone, and this is the one place the mobile reduction lives.
+
+     `preserveAspectRatio="xMidYMid slice"` crops to cover, so a 390px-wide
+     viewport sees roughly a third of the district's width — the same geometry
+     at a much larger effective zoom, which makes every line and label heavier
+     exactly where there is least room for them. Same map, same layers, less
+     presence. */
+  @media (max-width: 767px) {
+    :root,
+    .dark {
+      --map-opacity: 0.34;
+    }
   }
 
   * {

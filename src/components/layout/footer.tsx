@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { Logo } from './logo'
 import { useI18n } from '@/lib/i18n'
 import type { TranslationKey } from '@/lib/i18n'
+import { KUSHTIA_ATTRIBUTION } from '@/data/kushtia-geo.generated'
 
 const LINKS: { to: string; key: TranslationKey }[] = [
   { to: '/emergency', key: 'nav.emergency' },
@@ -47,6 +48,29 @@ export function Footer() {
 
         <p className="mt-8 text-meta text-ink-subtle">
           © {n(2026)} ELAKAI. {t('footer.rights')}
+        </p>
+
+        {/*
+          Basemap attribution, and it is a licence condition rather than a
+          courtesy.
+
+          The district outline, the Padma, the tributaries and the trunk road
+          network behind every page come from OpenStreetMap under the ODbL,
+          which requires the credit to be visible to anyone using the map. It
+          lives here rather than on the map itself because that element is
+          `aria-hidden` and `pointer-events-none` — a credit inside it could be
+          neither read by a screen reader nor followed to the licence.
+        */}
+        <p className="mt-1.5 text-meta text-ink-subtle">
+          {t('footer.map')}{' '}
+          <a
+            href="https://www.openstreetmap.org/copyright"
+            target="_blank"
+            rel="noreferrer"
+            className="rounded underline decoration-line underline-offset-2 transition-colors hover:text-ink-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            {KUSHTIA_ATTRIBUTION}
+          </a>
         </p>
       </div>
     </footer>

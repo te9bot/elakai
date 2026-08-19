@@ -253,6 +253,7 @@ const en = {
 
   'footer.about': 'ELAKAI is a free public directory for the people of Kushtia.',
   'footer.rights': 'All rights reserved.',
+  'footer.map': 'Map data',
   'footer.explore': 'Explore',
 
   /* ---- Landing page ------------------------------------------------------
@@ -556,6 +557,7 @@ const bn: Record<TranslationKey, string> = {
 
   'footer.about': 'ELAKAI কুষ্টিয়ার মানুষের জন্য একটি ফ্রি পাবলিক ডিরেক্টরি।',
   'footer.rights': 'সর্বস্বত্ব সংরক্ষিত।',
+  'footer.map': 'মানচিত্রের উৎস',
   'footer.explore': 'ঘুরে দেখুন',
 
   'lp.nav.what': 'পরিচিতি',

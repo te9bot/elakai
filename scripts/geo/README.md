@@ -54,6 +54,29 @@ use, so a marker and a distance can never disagree.
 If better boundary data turns up — an HDX/Bangladesh government admin-4
 dataset, or OSM once Sadar is mapped — `emit.mjs` is where it would be added.
 
+## Why the minor settlements are not here either
+
+The map used to label ten smaller towns — Allardarga, Poradaha, Shilaidaha and
+others. Real names, invented positions: each was placed by interpolating
+between two upazila coordinates and nudging by a fixed offset. Harmless while
+the roads around them were also invented; against a real trunk network it puts
+real towns in provably wrong places.
+
+`settlements.mjs` went looking for their true coordinates, bounded to the
+district so a same-named place elsewhere in Bangladesh could not win. The data
+does not support the layer:
+
+- Four of the ten have no usable node at all.
+- Of the six that resolve, `Bittipara` lands on a mosque and `Shilaidaha` on a
+  boatyard rather than on a settlement centre. `Poradaha` and `Jagati` resolve
+  to railway stations, which is defensible — both are well-known junctions —
+  but only `Amla` and `Janipur` come back as clean village nodes.
+
+Two reliable points out of ten is not a layer, so the whole thing was removed
+rather than shipped half-true. The six upazila seats carry the geography. The
+script stays because the next person to wonder about those labels should find
+the answer rather than repeat the search.
+
 ## What ships
 
 | Layer | Source | Notes |

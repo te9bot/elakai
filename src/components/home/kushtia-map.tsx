@@ -5,6 +5,12 @@ import { useI18n } from '@/lib/i18n'
 import { useReducedMotion } from '@/lib/motion'
 import { currentScrollY, onScrollFrame } from '@/lib/scroll'
 import { cn } from '@/lib/utils'
+import { MapGround } from '@/components/home/map-geo'
+import {
+  KUSHTIA_DISTRICT,
+  KUSHTIA_PLACES,
+  KUSHTIA_VIEW,
+} from '@/data/kushtia-geo.generated'
 
 /* ==========================================================================
  * The site's Kushtia map.
@@ -15,36 +21,45 @@ import { cn } from '@/lib/utils'
  * moving across one place. It is a background and nothing more: no route, no
  * section of its own, and no interaction.
  *
- * Vector, not a picture. Every upazila sits where its real coordinates put it:
- * the six positions below are projected from `AREA_MAP` — the same values the
- * distance sort and the map panel use — so the arrangement is the district's
- * actual shape rather than a designer's impression of it, and correcting a
- * coordinate moves the marker with no artwork to redraw.
+ * IT IS ALL REAL NOW, AND THAT NOTE USED TO SAY THE OPPOSITE.
  *
- * WHAT IS REAL AND WHAT IS NOT
+ * What stood here previously was honest about being mostly invented: "Roads,
+ * river, routes and urban blocks: illustrative ... not surveyed geometry."
+ * They were drawn from the six projected coordinates to read as a district.
  *
- * Marker positions and their relative geometry: real, from AREA_MAP.
- * Roads, river, routes and urban blocks: illustrative. They are drawn from the
- * projected points to read as a district — the Padma along the north-west, the
- * Gorai running south-east, trunk roads through Sadar — but they are not
- * surveyed geometry and nothing in the app treats them as data. They exist to
- * make the hero feel like a place; no Directions link and no distance is ever
- * computed from them.
+ * The district outline, the Padma, its tributaries and the trunk and primary
+ * road network are now real OpenStreetMap geometry, fetched, projected and
+ * simplified at build time — see `data/kushtia-geo.generated.ts`,
+ * `components/home/map-geo.tsx`, and `scripts/geo/README.md` for how, and for
+ * the two upazila boundaries that could NOT be verified and are therefore not
+ * drawn. Nothing on this map is invented any more; things that could not be
+ * confirmed were removed rather than approximated.
  *
- * THEMES ARE INDEPENDENT
+ * The six upazila markers are unchanged in meaning: the same `AREA_MAP`
+ * coordinates the distance sort and the area filter use, so a marker cannot
+ * disagree with a distance shown beside it.
  *
- * Light is not dark inverted. Dark is a deep navy field with blue-grey roads
- * and a cyan river; light is an off-white field with pale grey roads and a
- * soft blue river. Each is tuned so hero copy stays readable over it, which is
- * why the two palettes are written out per element rather than derived.
+ * Geometry © OpenStreetMap contributors (ODbL). The attribution is a licence
+ * condition and is rendered in the site footer, because this element is
+ * `aria-hidden` and `pointer-events-none` and a credit inside it could be
+ * neither read out nor followed.
+ *
+ * THEMES ARE ONE GEOMETRY, TWO TREATMENTS
+ *
+ * Light is not dark inverted, but both draw exactly the same paths. Dark is a
+ * deep navy field with blue-grey roads and a cyan river; light is an off-white
+ * field with pale grey roads and a soft blue river. Each is tuned so hero copy
+ * stays readable over it, which is why the two palettes are written out per
+ * element rather than derived.
  *
  * MOTION
  *
- * Eight layers at increasing depth — grid, urban blocks, river, roads, dashed
- * routes, glow, markers and labels — offset by both pointer position and scroll
- * position, each scaled by its own depth. The grid barely moves; the labels move
- * most. Everything is a `translate3d`, so the whole backdrop stays on the
- * compositor and scrolling never triggers layout.
+ * Three layers, not eight — the ground, the focus light and the labels. The
+ * reason five ground layers collapsed into one is at DEPTH: real geography
+ * cannot be slid against itself without coming apart, because the Padma *is*
+ * the boundary and the roads cross the rivers at real bridges. Everything is a
+ * `translate3d`, so the backdrop stays on the compositor and scrolling never
+ * triggers layout.
  *
  * Whether any of it runs is `lib/motion.ts`'s decision, not this file's — see
  * the note in the effect below.
@@ -93,27 +108,20 @@ import { cn } from '@/lib/utils'
 /* Projection                                                          */
 /* ------------------------------------------------------------------ */
 
-const VIEW = { w: 1200, h: 700 }
-
-/**
- * The window the map draws, in degrees.
+/*
+ * The view box now comes from the geography rather than from the composition.
  *
- * Padded well beyond the six upazilas on the latitude axis in particular. The
- * hero is a wide, short band and the svg uses `slice`, so it fills the box and
- * crops whatever overflows — top and bottom, at these proportions. Sizing the
- * window so the district occupies only the middle ~45% vertically is what keeps
- * Daulatpur and Khoksa, the northern and southern extremes, inside the frame
- * instead of cropped away at exactly the widths the hero is usually viewed at.
+ * It used to be a chosen 1200x700 with a hand-picked degree window sized so the
+ * district sat in the middle 45% of a wide, short hero band. That was the right
+ * way round while the artwork was invented: pick a frame, draw to fit it.
+ *
+ * With real boundaries the frame has to follow the district instead, or the
+ * shape is wrong. `scripts/geo` fits the view box to Kushtia's true aspect and
+ * projects equirectangular with a cos(lat) correction — the old projection
+ * plotted lon/lat straight onto x/y, which stretches the district about 9%
+ * horizontally. Invisible on invented shapes; an error on a real one.
  */
-const BOUNDS = { west: 88.85, east: 89.32, south: 23.6, north: 24.25 }
-
-function project(lng: number, lat: number): { x: number; y: number } {
-  return {
-    x: ((lng - BOUNDS.west) / (BOUNDS.east - BOUNDS.west)) * VIEW.w,
-    // Latitude increases northward and SVG y increases downward.
-    y: ((BOUNDS.north - lat) / (BOUNDS.north - BOUNDS.south)) * VIEW.h,
-  }
-}
+const VIEW = KUSHTIA_VIEW
 
 const AREA_ORDER: AreaId[] = [
   'daulatpur',
@@ -124,9 +132,20 @@ const AREA_ORDER: AreaId[] = [
   'khoksa',
 ]
 
+/*
+ * The same six coordinates, projected by the same build that projected the
+ * boundary.
+ *
+ * `KUSHTIA_PLACES` is generated from `data/categories.ts` — the values the area
+ * filter and the distance sort already use — so a marker cannot drift away from
+ * the distance shown next to it. Names still come from `AREA_MAP` at runtime so
+ * they follow the locale.
+ */
 const PLACES = AREA_ORDER.map((id) => {
   const area = AREA_MAP[id]
-  return { id, name: area.name, ...project(area.coords.lng, area.coords.lat) }
+  const projected = KUSHTIA_PLACES.find((p) => p.id === id)
+  if (!projected) throw new Error(`kushtia-map: no projected coordinate for "${id}"`)
+  return { id, name: area.name, x: projected.x, y: projected.y }
 })
 
 const at = (id: AreaId) => PLACES.find((p) => p.id === id)!
@@ -134,11 +153,15 @@ const at = (id: AreaId) => PLACES.find((p) => p.id === id)!
 type Point = { x: number; y: number }
 
 /**
- * The control point of the quadratic that bends a road off the straight line.
+ * The control point of the quadratic the focus light travels along.
  *
- * Split out from `curve()` so the geometry has one definition. The focus light
- * below walks these same curves, and if it computed its own the light would
- * drift off the roads the moment either formula was touched.
+ * This used to be shared with the road drawing — the light rode the same curve
+ * the trunk roads were drawn from, so it could not drift off them. The roads
+ * are real geometry now and are not built from this, so the shared-definition
+ * argument is gone; what remains is that the journey still needs a gentle arc
+ * between two real coordinates rather than a straight line, because a light
+ * that travels in straight segments reads as a cursor rather than as movement
+ * across a district.
  */
 function control(a: Point, b: Point, bow: number): Point {
   const mx = (a.x + b.x) / 2
@@ -147,12 +170,6 @@ function control(a: Point, b: Point, bow: number): Point {
   const dx = b.x - a.x
   const dy = b.y - a.y
   return { x: mx - dy * bow, y: my + dx * bow }
-}
-
-/** A gentle curve between two projected points, so roads are not rulers. */
-function curve(a: Point, b: Point, bow = 0.12): string {
-  const c = control(a, b, bow)
-  return `M ${a.x} ${a.y} Q ${c.x} ${c.y} ${b.x} ${b.y}`
 }
 
 /** A point at `t` (0..1) along a quadratic Bézier. */
@@ -164,185 +181,13 @@ function quadAt(a: Point, c: Point, b: Point, t: number): Point {
   }
 }
 
-const sadar = at('kushtia-sadar')
-
-/** Trunk roads: everything meets at Sadar, which is how the district works. */
-const ROADS = [
-  curve(at('daulatpur'), at('bheramara')),
-  curve(at('bheramara'), at('mirpur')),
-  curve(at('mirpur'), sadar),
-  curve(sadar, at('kumarkhali')),
-  curve(at('kumarkhali'), at('khoksa')),
-  curve(at('bheramara'), sadar, -0.08),
-]
-
-/** Secondary links, drawn dashed. */
-const ROUTES = [
-  curve(at('daulatpur'), at('mirpur'), -0.16),
-  curve(sadar, at('khoksa'), 0.2),
-]
-
-/* ------------------------------------------------------------------ */
-/* Cartographic detail                                                 */
-/*                                                                     */
-/* Everything below is the second tier of the map: minor settlements,  */
-/* local roads, upazila boundaries, tributaries and low ground. It is   */
-/* here to make the backdrop read as a surveyed district rather than as */
-/* six dots on a line.                                                  */
-/*                                                                     */
-/* WHAT IS REAL AND WHAT IS NOT — unchanged from the note at the top    */
-/*                                                                     */
-/* The names are real places in Kushtia district. Their *positions* are */
-/* not surveyed: they are laid out relative to the six projected towns  */
-/* so the network reads correctly, exactly as the trunk roads and the   */
-/* river already are. Nothing in the app computes a distance or a       */
-/* direction from any of it. The six main towns remain the only         */
-/* geometry taken from real coordinates, via AREA_MAP.                  */
-/*                                                                     */
-/* CONTRAST BUDGET                                                      */
-/*                                                                     */
-/* Every element here sits below the tier above it: minor roads are     */
-/* thinner and paler than trunk roads, minor labels are ~60% the size   */
-/* of the town labels and dimmer, boundaries are dashed hairlines. The  */
-/* hero has to stay the thing you read first, so detail is bought with  */
-/* density rather than with contrast.                                   */
-/* ------------------------------------------------------------------ */
-
-/** A point between two projected places, `f` of the way along, nudged off the
- *  line by `off` so a settlement does not sit exactly on the trunk road. */
-function between(a: Point, b: Point, f: number, off = 0): Point {
-  const dx = b.x - a.x
-  const dy = b.y - a.y
-  const len = Math.hypot(dx, dy) || 1
-  return {
-    x: a.x + dx * f - (dy / len) * off,
-    y: a.y + dy * f + (dx / len) * off,
-  }
-}
-
-const daulatpur = at('daulatpur')
-const bheramara = at('bheramara')
-const mirpur = at('mirpur')
-const kumarkhali = at('kumarkhali')
-const khoksa = at('khoksa')
-
-/**
- * Minor settlements, drawn as a small node and a small label.
- *
- * Ten is deliberate. Fewer and the district still looks empty between the
- * towns; more and the labels start colliding at the widths the hero is
- * actually read at, which is worse than having none.
- */
-const MINOR: { name: { en: string; bn: string }; at: Point }[] = [
-  { name: { en: 'Allardarga', bn: 'আল্লারদর্গা' }, at: between(daulatpur, bheramara, 0.34, -26) },
-  { name: { en: 'Hatash Haripur', bn: 'হাটাশ হরিপুর' }, at: between(daulatpur, bheramara, 0.68, 30) },
-  { name: { en: 'Amla', bn: 'আমলা' }, at: between(bheramara, mirpur, 0.45, -30) },
-  { name: { en: 'Poradaha', bn: 'পোড়াদহ' }, at: between(bheramara, sadar, 0.5, 34) },
-  { name: { en: 'Jagati', bn: 'জগতি' }, at: between(mirpur, sadar, 0.62, -24) },
-  { name: { en: 'Janipur', bn: 'জানিপুর' }, at: between(sadar, kumarkhali, 0.26, 30) },
-  { name: { en: 'Bittipara', bn: 'বিত্তিপাড়া' }, at: between(sadar, kumarkhali, 0.58, -28) },
-  { name: { en: 'Shilaidaha', bn: 'শিলাইদহ' }, at: between(kumarkhali, khoksa, 0.3, 32) },
-  { name: { en: 'Piaripur', bn: 'পিয়ারীপুর' }, at: between(kumarkhali, khoksa, 0.66, -26) },
-  { name: { en: 'Chithulia', bn: 'চিথুলিয়া' }, at: between(mirpur, daulatpur, 0.5, 40) },
-]
-
-/**
- * Local roads: every minor settlement joined onto the trunk network, plus a
- * few cross-links so the network has loops in it. A road system that is a pure
- * tree reads as a diagram; real ones close.
- */
-const MINOR_ROADS = [
-  curve(daulatpur, MINOR[0].at, 0.08),
-  curve(MINOR[0].at, bheramara, 0.06),
-  curve(MINOR[1].at, bheramara, -0.1),
-  curve(bheramara, MINOR[2].at, 0.09),
-  curve(MINOR[2].at, mirpur, -0.07),
-  curve(MINOR[3].at, sadar, 0.05),
-  curve(mirpur, MINOR[4].at, 0.08),
-  curve(MINOR[4].at, sadar, -0.06),
-  curve(sadar, MINOR[5].at, 0.07),
-  curve(MINOR[5].at, MINOR[6].at, -0.05),
-  curve(MINOR[6].at, kumarkhali, 0.06),
-  curve(kumarkhali, MINOR[7].at, -0.08),
-  curve(MINOR[7].at, MINOR[8].at, 0.05),
-  curve(MINOR[8].at, khoksa, -0.07),
-  curve(MINOR[9].at, mirpur, 0.1),
-  curve(daulatpur, MINOR[9].at, -0.09),
-]
-
-/** Unnamed lanes running off the network into the fields. Short, and the
- *  faintest thing on the map — they read as texture, not as routes. */
-const LANES = MINOR.flatMap((m, i) => {
-  const a = m.at
-  const spread = [(i * 37) % 60, (i * 53) % 60]
-  return [
-    `M ${a.x} ${a.y} L ${a.x + 34 + spread[0] * 0.4} ${a.y + 22 - spread[1] * 0.5}`,
-    `M ${a.x} ${a.y} L ${a.x - 28 - spread[1] * 0.35} ${a.y + 30 + spread[0] * 0.3}`,
-  ]
-})
-
-/** Where a local road meets the trunk network. Small, and only at the towns
- *  the roads actually converge on. */
-const JUNCTIONS = [
-  between(daulatpur, bheramara, 0.34, -26),
-  between(bheramara, mirpur, 0.45, -30),
-  between(mirpur, sadar, 0.62, -24),
-  between(sadar, kumarkhali, 0.26, 30),
-  between(kumarkhali, khoksa, 0.3, 32),
-]
-
-/**
- * Upazila boundaries, as dashed hairlines running between the towns rather
- * than around them.
- *
- * Drawn this way on purpose. Closed polygons would be a claim about where the
- * borders are, and these are not surveyed; a line falling roughly between two
- * upazila seats says "the district is divided here" without asserting a shape.
- */
-const BOUNDARIES = [
-  `M ${between(daulatpur, bheramara, 0.5, -170).x} ${between(daulatpur, bheramara, 0.5, -170).y}
-   Q ${between(daulatpur, bheramara, 0.5, 0).x} ${between(daulatpur, bheramara, 0.5, 20).y}
-     ${between(daulatpur, bheramara, 0.5, 170).x} ${between(daulatpur, bheramara, 0.5, 170).y}`,
-  `M ${between(bheramara, mirpur, 0.55, -180).x} ${between(bheramara, mirpur, 0.55, -180).y}
-   Q ${between(bheramara, mirpur, 0.55, 0).x} ${between(bheramara, mirpur, 0.55, 10).y}
-     ${between(bheramara, mirpur, 0.55, 180).x} ${between(bheramara, mirpur, 0.55, 180).y}`,
-  `M ${between(mirpur, sadar, 0.5, -200).x} ${between(mirpur, sadar, 0.5, -200).y}
-   Q ${between(mirpur, sadar, 0.5, 0).x} ${between(mirpur, sadar, 0.5, 15).y}
-     ${between(mirpur, sadar, 0.5, 200).x} ${between(mirpur, sadar, 0.5, 200).y}`,
-  `M ${between(sadar, kumarkhali, 0.5, -190).x} ${between(sadar, kumarkhali, 0.5, -190).y}
-   Q ${between(sadar, kumarkhali, 0.5, 0).x} ${between(sadar, kumarkhali, 0.5, 12).y}
-     ${between(sadar, kumarkhali, 0.5, 190).x} ${between(sadar, kumarkhali, 0.5, 190).y}`,
-  `M ${between(kumarkhali, khoksa, 0.55, -170).x} ${between(kumarkhali, khoksa, 0.55, -170).y}
-   Q ${between(kumarkhali, khoksa, 0.55, 0).x} ${between(kumarkhali, khoksa, 0.55, 14).y}
-     ${between(kumarkhali, khoksa, 0.55, 170).x} ${between(kumarkhali, khoksa, 0.55, 170).y}`,
-]
-
-/** Tributaries feeding the two main channels. Thinner than the rivers they
- *  join, and they stop short rather than running off the frame. */
-const TRIBUTARIES = [
-  'M 210 96 C 250 150, 236 196, 286 236',
-  'M 520 214 C 556 262, 604 274, 640 322',
-  'M 840 268 C 884 320, 928 332, 962 386',
-  'M 1096 250 C 1128 296, 1150 330, 1168 372',
-  'M 742 430 C 786 468, 828 486, 872 526',
-]
-
-/** Low ground and char land along the water. Very soft, and the lowest
- *  contrast thing on the map — it should register as tone, not as shape. */
-const TERRAIN = [
-  'M -40 120 C 140 70, 320 120, 430 190 C 300 236, 130 214, -40 214 Z',
-  'M 660 372 C 790 400, 900 466, 1010 556 C 880 540, 740 486, 640 430 Z',
-  'M 250 470 C 400 440, 520 486, 610 556 C 460 596, 320 560, 240 520 Z',
-]
-
 /* ------------------------------------------------------------------ */
 /* The journey                                                         */
 /* ------------------------------------------------------------------ */
 
 /**
  * The district north-west to south-east, which is also the order the trunk
- * roads already connect it in — the first five entries of `ROADS` are exactly
- * these hops.
+ * roads connect it in.
  *
  * This is what the focus light travels. It is a real route through real
  * coordinates, not a decorative path invented to look like one.
@@ -422,26 +267,38 @@ const FOCUS_WRITE_MS = 32
  */
 const SCROLL_SPAN = 1400
 
+/*
+ * THREE DEPTHS, WHERE THERE USED TO BE SEVEN, AND THE REASON IS THE GEOGRAPHY.
+ *
+ * The old artwork put grid, blocks, river, roads and routes on five separate
+ * planes and slid them against each other. That was right for invented shapes:
+ * nothing was anchored to anything, so differential movement read as depth.
+ *
+ * Real geography cannot be taken apart like that. The Padma *is* the district's
+ * northern boundary; the trunk roads cross the rivers at real bridges; the
+ * upazila markers sit on real coordinates inside a real outline. Sliding those
+ * against each other does not read as depth, it reads as the map coming apart
+ * at its seams — and the faster the scroll, the more it separates.
+ *
+ * So the ground is one plane. What is still allowed to move independently is
+ * what genuinely floats above the map rather than belonging to it: the focus
+ * light, and the labels.
+ *
+ * It is also three transform writes per frame instead of seven, and three
+ * promoted layers instead of seven, on the element that is fixed behind every
+ * page on the site.
+ */
 const DEPTH = {
-  grid: 1,
-  blocks: 3,
+  /** District, rivers and roads — one piece of ground. */
+  ground: 1,
+  /** The travelling focus light. Above the ground, below the labels. */
   glow: 4,
-  river: 6,
-  roads: 9,
-  routes: 11,
+  /** Markers and place names. The only thing that is not geography. */
   markers: 14,
 } as const
 
-/** The seven layers the loop drives, in the order their refs are stored. */
-const LAYER_DEPTHS = [
-  DEPTH.grid,
-  DEPTH.blocks,
-  DEPTH.river,
-  DEPTH.roads,
-  DEPTH.routes,
-  DEPTH.glow,
-  DEPTH.markers,
-] as const
+/** The three layers the loop drives, in the order their refs are stored. */
+const LAYER_DEPTHS = [DEPTH.ground, DEPTH.glow, DEPTH.markers] as const
 
 /**
  * How quickly a layer catches up with its target, as the time for the remaining
@@ -1180,7 +1037,22 @@ function KushtiaMapImpl({
   )
 
   return (
-    <div ref={ref} aria-hidden="true" className={cn('pointer-events-none', className)}>
+    <div
+      ref={ref}
+      aria-hidden="true"
+      /*
+       * `--map-opacity` is defined once in index.css, per theme, with a lower
+       * value below 768px. Applied to the root rather than per layer so the
+       * whole backdrop dims as one thing and the relationships inside it — the
+       * Padma against the roads, the light against the ground — are unchanged
+       * at every setting.
+       *
+       * One opacity on one element also means one composited layer, rather
+       * than each child getting its own stacking context.
+       */
+      style={{ opacity: 'var(--map-opacity)' }}
+      className={cn('pointer-events-none', className)}
+    >
       <svg
         viewBox={`0 0 ${VIEW.w} ${VIEW.h}`}
         preserveAspectRatio="xMidYMid slice"
@@ -1189,6 +1061,17 @@ function KushtiaMapImpl({
         focusable="false"
       >
         <defs>
+          {/* The district, as a clip for the road and river networks.
+
+              Both were fetched over a bounding box, so they run well past
+              Kushtia into Rajshahi and Jhenaidah. Clipping is what makes the
+              composition read as one district rather than as a rectangle cut
+              out of Bangladesh. One clip path, applied to one group, on
+              geometry that never changes. */}
+          <clipPath id="km-district-clip">
+            <path d={KUSHTIA_DISTRICT} />
+          </clipPath>
+
           {/* Gradient stops carry their colour as a class pair rather than a
               `theme()` lookup: one class cannot change with the theme, and the
               veil in particular has to match the hero's own surface exactly in
@@ -1261,178 +1144,17 @@ function KushtiaMapImpl({
         {/* 1 — base field */}
         <rect width={VIEW.w} height={VIEW.h} className="fill-[#f4f7fb] dark:fill-[#0b1220]" />
 
-        {/* 2 — geographic grid. The furthest layer, so it barely moves; it is
-            what the closer layers are seen to move against. Oversized and
-            offset so its own edge cannot travel into view. */}
+        {/* 2 — the real ground: district, rivers, roads.
+
+            Five invented layers stood here — a geographic grid, urban blocks,
+            a drawn river, drawn roads and drawn routes — on five parallax
+            planes. They are replaced by one plane carrying real OpenStreetMap
+            geometry. The reasoning for collapsing five planes into one is at
+            DEPTH above; the geometry itself, and what could not be verified,
+            is in components/home/map-geo.tsx and scripts/geo/README.md. */}
         <g ref={setLayer[0]}>
-          <rect
-            x={-40}
-            y={-40}
-            width={VIEW.w + 80}
-            height={VIEW.h + 80}
-            fill="url(#km-grid)"
-            opacity="0.7"
-          />
-
-          {/* Low ground, on the deepest layer so it sits under everything and
-              barely moves — ground should not parallax like a road. */}
-          {TERRAIN.map((d, i) => (
-            <path
-              key={`terrain-${i}`}
-              d={d}
-              className="fill-[#e6edf6] dark:fill-[#101c2e]"
-              opacity="0.5"
-            />
-          ))}
-
-          {/* Upazila divisions. Dashed hairlines, the faintest strokes here. */}
-          {BOUNDARIES.map((d, i) => (
-            <path
-              key={`bound-${i}`}
-              d={d}
-              fill="none"
-              strokeWidth="1"
-              strokeDasharray="2 9"
-              className="stroke-[#a9b8cc] dark:stroke-[#2b3a51]"
-              opacity="0.55"
-            />
-          ))}
+          <MapGround clipId="km-district-clip" />
         </g>
-
-        {/* 3 — urban blocks: density around the three larger towns */}
-        <g ref={setLayer[1]} className="fill-[#dbe3ee] dark:fill-[#16233a]">
-          {PLACES.flatMap((p, i) =>
-            // A deterministic scatter — same seed, same blocks, every render.
-            Array.from({ length: 5 }, (_, k) => {
-              const seed = i * 7 + k * 13
-              const w = 22 + ((seed * 11) % 26)
-              const h = 14 + ((seed * 7) % 18)
-              return (
-                <rect
-                  key={`${p.id}-${k}`}
-                  x={p.x + (((seed * 17) % 120) - 60)}
-                  y={p.y + (((seed * 23) % 90) - 45)}
-                  width={w}
-                  height={h}
-                  rx="2"
-                  opacity={0.55}
-                />
-              )
-            }),
-          )}
-
-          {/* Smaller blocks around the minor settlements. Same deterministic
-              scatter, two-thirds the size and half the opacity, so density
-              falls off away from the towns the way it actually does. */}
-          {MINOR.flatMap((m, i) =>
-            Array.from({ length: 3 }, (_, k) => {
-              const seed = i * 11 + k * 19
-              return (
-                <rect
-                  key={`minor-block-${i}-${k}`}
-                  x={m.at.x + (((seed * 13) % 74) - 37)}
-                  y={m.at.y + (((seed * 29) % 56) - 28)}
-                  width={12 + ((seed * 7) % 16)}
-                  height={9 + ((seed * 5) % 12)}
-                  rx="1.5"
-                  opacity={0.3}
-                />
-              )
-            }),
-          )}
-        </g>
-
-        {/* 4 — river: the Padma along the north-west, the Gorai to the south-east */}
-        <g ref={setLayer[2]} fill="none" strokeLinecap="round">
-          <path
-            d="M -40 150 C 180 96, 330 128, 470 212 S 690 300, 860 268 S 1120 214, 1260 246"
-            strokeWidth="26"
-            className="stroke-[#bcd7ee] dark:stroke-[#12405c]"
-            opacity="0.75"
-          />
-          <path
-            d="M -40 150 C 180 96, 330 128, 470 212 S 690 300, 860 268 S 1120 214, 1260 246"
-            strokeWidth="10"
-            className="stroke-[#8fc0e6] dark:stroke-[#1d6f96]"
-            opacity="0.6"
-          />
-          <path
-            d="M 700 400 C 790 470, 900 520, 1010 566 S 1180 640, 1250 700"
-            strokeWidth="14"
-            className="stroke-[#bcd7ee] dark:stroke-[#12405c]"
-            opacity="0.6"
-          />
-
-          {/* Tributaries. Same hue as the channels they feed, a fifth of the
-              width, so the water reads as a system rather than two stripes. */}
-          {TRIBUTARIES.map((d, i) => (
-            <path
-              key={`trib-${i}`}
-              d={d}
-              strokeWidth="4"
-              className="stroke-[#bcd7ee] dark:stroke-[#12405c]"
-              opacity="0.5"
-            />
-          ))}
-        </g>
-
-        {/* 5 — roads, in hierarchy order: lanes, then local roads, then trunk.
-               Painted lowest-first so the trunk network stays on top of its own
-               feeders, which is what makes the hierarchy legible rather than
-               just thinner. */}
-        <g ref={setLayer[3]} fill="none" strokeLinecap="round">
-          {LANES.map((d, i) => (
-            <path
-              key={`lane-${i}`}
-              d={d}
-              strokeWidth="1"
-              className="stroke-[#cfd8e4] dark:stroke-[#22334c]"
-              opacity="0.45"
-            />
-          ))}
-
-          {MINOR_ROADS.map((d, i) => (
-            <path
-              key={`minor-road-${i}`}
-              d={d}
-              strokeWidth="2.5"
-              className="stroke-[#cfd8e4] dark:stroke-[#22334c]"
-              opacity="0.8"
-            />
-          ))}
-
-          {ROADS.map((d, i) => (
-            <path
-              key={i}
-              d={d}
-              strokeWidth="7"
-              className="stroke-[#cfd8e4] dark:stroke-[#22334c]"
-            />
-          ))}
-          {ROADS.map((d, i) => (
-            <path
-              key={`inner-${i}`}
-              d={d}
-              strokeWidth="2.5"
-              className="stroke-[#e8eef6] dark:stroke-[#31465f]"
-            />
-          ))}
-        </g>
-
-        {/* 6 — secondary routes */}
-        <g ref={setLayer[4]} fill="none" strokeLinecap="round">
-          {ROUTES.map((d, i) => (
-            <path
-              key={i}
-              d={d}
-              strokeWidth="2.5"
-              strokeDasharray="10 12"
-              className="stroke-[#93b4d8] dark:stroke-[#2f6ea0]"
-              opacity="0.85"
-            />
-          ))}
-        </g>
-
         {/* 7 — the focus light, travelling the journey.
 
             This replaced two fixed pools of light, one over Sadar and one over
@@ -1453,7 +1175,7 @@ function KushtiaMapImpl({
             drifts with the map and stays in register with the roads under it.
             The inner is the journey position. Composing them by nesting is what
             keeps both on the compositor. */}
-        <g ref={setLayer[5]}>
+        <g ref={setLayer[1]}>
           <g ref={focusRef}>
             <circle r={FOCUS_RADIUS} fill="url(#km-focus)" />
           </g>
@@ -1462,47 +1184,31 @@ function KushtiaMapImpl({
         {/* 8 — markers and labels.
             Held at 0.8 so place names read as part of the backdrop rather than
             competing with the hero copy sitting over them. */}
-        <g ref={setLayer[6]} opacity="0.8">
-          {/* Junctions, drawn before the settlements so a node sits over its
-              own road joint rather than under it. */}
-          {JUNCTIONS.map((j, i) => (
-            <circle
-              key={`junction-${i}`}
-              cx={j.x}
-              cy={j.y}
-              r="2.5"
-              className="fill-[#9db3cc] dark:fill-[#3d5372]"
-              opacity="0.7"
-            />
-          ))}
+        <g ref={setLayer[2]} opacity="0.8">
+          {/* The junction dots are gone with the roads they marked. They sat
+              at the intersections of five invented Bezier curves; against the
+              real trunk network they would be six dots in a field, marking
+              nothing. */}
 
-          {/* Minor settlements. Roughly half the node and 60% the label of a
-              town, and dimmer — the six upazila seats have to stay readable as
-              the primary tier at a glance. */}
-          {MINOR.map((m) => (
-            <g key={m.name.en}>
-              <circle
-                cx={m.at.x}
-                cy={m.at.y}
-                r="3.5"
-                className="fill-[#9db3cc] dark:fill-[#3d5372]"
-              />
-              <circle
-                cx={m.at.x}
-                cy={m.at.y}
-                r="1.5"
-                className="fill-[#ffffff] dark:fill-[#0b1220]"
-              />
-              <text
-                x={m.at.x}
-                y={m.at.y - 9}
-                textAnchor="middle"
-                className="text-[10px] font-semibold tracking-wide fill-[#8ba0b8] dark:fill-[#4a627f]"
-              >
-                {L(m.name)}
-              </text>
-            </g>
-          ))}
+          {/* The minor-settlement layer stood here and is gone.
+
+              Ten real Kushtia town names — Allardarga, Poradaha, Shilaidaha
+              and the rest — at invented positions: each was placed by
+              interpolating between two upazila coordinates and nudging by an
+              arbitrary offset. That was survivable while the roads and rivers
+              around them were invented too. Against the real trunk network it
+              puts real towns in provably wrong places.
+
+              scripts/geo/settlements.mjs went looking for their true
+              coordinates and the data does not support the layer: four of the
+              ten have no usable node in OSM at all, and of the six that
+              resolve, Bittipara lands on a mosque and Shilaidaha on a
+              boatyard rather than on a settlement centre. Two clean village
+              nodes out of ten is not a layer.
+
+              They were also the loudest thing competing with the hero copy, so
+              accuracy and restraint pointed the same way. The six upazila
+              seats carry the geography. */}
 
           {PLACES.map((p) => {
             const isSadar = p.id === 'kushtia-sadar'
