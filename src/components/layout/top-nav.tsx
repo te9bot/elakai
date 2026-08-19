@@ -149,12 +149,23 @@ export function TopNav() {
             </div>
           )}
 
+          {/*
+           * Only in the 1024–1280px band, which is the one place nothing else
+           * offers search.
+           *
+           * It used to be `xl:hidden`, so it appeared everywhere below 1280px —
+           * including every phone, where BottomNav already carries a Search tab
+           * as one of its five items. That put the same destination in the top
+           * bar and the bottom bar of every mobile screen, and the top one was
+           * the less reachable of the two. Below `lg` the tab bar has it; from
+           * `xl` up the inline field above has it; between the two, this does.
+           */}
           {!onSearchPage && (
             <Link
               to="/search"
               aria-label={t('nav.search')}
               className={cn(
-                'grid size-11 place-items-center rounded-full text-ink-muted xl:hidden',
+                'hidden size-11 place-items-center rounded-full text-ink-muted lg:grid xl:hidden',
                 'transition-colors hover:bg-surface-2 hover:text-ink',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
               )}
