@@ -13,6 +13,7 @@ import {
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useI18n } from '@/lib/i18n'
 import { useAccount } from '@/lib/auth'
 import {
   listMySubmissions,
@@ -32,6 +33,7 @@ import { sectionLabel } from '@/lib/listings'
  */
 export default function ContributeOverviewPage() {
   const { schemaReady } = useAccount()
+  const { t } = useI18n()
 
   const stats = useQuery({
     queryKey: ['contribute', 'stats'],
@@ -54,38 +56,35 @@ export default function ContributeOverviewPage() {
       {stats.isError && <LoadFailure message={submissionError(stats.error)} />}
 
       <StatRow>
-        <Stat label="Total" value={stats.data?.total} loading={stats.isPending} />
-        <Stat label="Approved" value={stats.data?.approved} loading={stats.isPending} />
-        <Stat label="Pending" value={stats.data?.pending} loading={stats.isPending} />
-        <Stat label="Not accepted" value={stats.data?.rejected} loading={stats.isPending} />
-        <Stat label="Points" value={stats.data?.points} loading={stats.isPending} accent />
+        <Stat label={t('contribute.stat.total')} value={stats.data?.total} loading={stats.isPending} />
+        <Stat label={t('contribute.stat.approved')} value={stats.data?.approved} loading={stats.isPending} />
+        <Stat label={t('contribute.stat.pending')} value={stats.data?.pending} loading={stats.isPending} />
+        <Stat label={t('contribute.stat.rejected')} value={stats.data?.rejected} loading={stats.isPending} />
+        <Stat label={t('contribute.stat.points')} value={stats.data?.points} loading={stats.isPending} accent />
       </StatRow>
 
       <Card className="flex flex-wrap items-center justify-between gap-4 p-5">
         <div className="min-w-0">
-          <p className="text-heading">Know somewhere that is missing?</p>
-          <p className="mt-1 text-body-sm text-ink-muted">
-            Add it and an administrator will check it. Approved information earns
-            you 50 points.
-          </p>
+          <p className="text-heading">{t('contribute.cta.title')}</p>
+          <p className="mt-1 text-body-sm text-ink-muted">{t('contribute.cta.body')}</p>
         </div>
         <Button size="lg" asChild>
           <Link to="/contribute/submit">
             <Plus aria-hidden="true" />
-            Submit information
+            {t('contribute.cta.action')}
           </Link>
         </Button>
       </Card>
 
       <section>
         <div className="mb-4 flex items-end justify-between gap-4">
-          <h2 className="text-heading">Recent activity</h2>
+          <h2 className="text-heading">{t('contribute.recent')}</h2>
           {latest.length > 0 && (
             <Link
               to="/contribute/submissions"
               className="group inline-flex shrink-0 items-center gap-1 rounded-control px-2 py-1.5 text-body-sm font-bold text-primary transition-colors hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
-              See all
+              {t('contribute.seeAll')}
               <ArrowRight
                 className="size-4 transition-transform group-hover:translate-x-0.5"
                 aria-hidden="true"
@@ -104,9 +103,9 @@ export default function ContributeOverviewPage() {
           </div>
         ) : latest.length === 0 ? (
           <EmptyState
-            title="Nothing yet"
-            body="When you submit information it appears here with its status, so you can see what is waiting and what went live."
-            actionLabel="Submit your first"
+            title={t('contribute.empty.title')}
+            body={t('contribute.empty.body')}
+            actionLabel={t('contribute.empty.action')}
             actionTo="/contribute/submit"
           />
         ) : (

@@ -13,6 +13,8 @@ import {
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { SubmissionStatus } from '@/lib/submissions'
+import { useI18n } from '@/lib/i18n'
+import type { TranslationKey } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 /* ==========================================================================
@@ -93,22 +95,22 @@ export function ContributeNav() {
 
 const STATUS_META: Record<
   SubmissionStatus,
-  { label: string; icon: typeof Clock; className: string; dot: string }
+  { key: TranslationKey; icon: typeof Clock; className: string; dot: string }
 > = {
   pending: {
-    label: 'Pending review',
+    key: 'contribute.status.pending',
     icon: Clock,
     className: 'bg-warning-soft text-warning-ink',
     dot: 'bg-warning',
   },
   approved: {
-    label: 'Approved',
+    key: 'contribute.status.approved',
     icon: CheckCircle2,
     className: 'bg-success-soft text-success-ink',
     dot: 'bg-success',
   },
   rejected: {
-    label: 'Not accepted',
+    key: 'contribute.status.rejected',
     icon: XCircle,
     className: 'bg-danger-soft text-danger-ink',
     dot: 'bg-danger',
@@ -132,6 +134,7 @@ export function StatusPill({
   status: SubmissionStatus
   className?: string
 }) {
+  const { t } = useI18n()
   const meta = STATUS_META[status]
   return (
     <span
@@ -142,14 +145,11 @@ export function StatusPill({
       )}
     >
       <span className={cn('size-1.5 rounded-full', meta.dot)} aria-hidden="true" />
-      {meta.label}
+      {t(meta.key)}
     </span>
   )
 }
 
-export function statusLabel(status: SubmissionStatus): string {
-  return STATUS_META[status].label
-}
 
 /* ------------------------------------------------------------------ */
 /* Numbers                                                             */
@@ -174,6 +174,10 @@ export function Stat({
   loading?: boolean
   accent?: boolean
 }) {
+  // Bangla digits in Bangla, the same as every other number on the site. The
+  // dashboard was the one place still printing Latin numerals to a reader who
+  // had seen ৭৪ everywhere else.
+  const { n } = useI18n()
   return (
     <div className="min-w-0">
       {loading ? (
@@ -185,7 +189,7 @@ export function Stat({
             accent ? 'text-primary' : 'text-ink',
           )}
         >
-          {value ?? 0}
+          {n(value ?? 0)}
         </p>
       )}
       <p className="mt-2 text-meta font-semibold text-ink-subtle">{label}</p>

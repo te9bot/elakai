@@ -20,6 +20,7 @@ import {
   type ContributeIntent,
 } from '@/lib/contribute-intent'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/lib/i18n'
 
 /**
  * Contributor sign-in.
@@ -30,6 +31,7 @@ import { cn } from '@/lib/utils'
  */
 export default function AccountLoginPage() {
   const { status, signIn, sendPasswordReset, schemaReady } = useAccount()
+  const { t } = useI18n()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -222,26 +224,23 @@ export default function AccountLoginPage() {
 
   return (
     <AuthShell
-      title="Welcome back"
-      subtitle="Sign in to submit information and track your contributions."
+      title={t('auth.welcome')}
+      subtitle={t('auth.welcomeSub')}
       footer={
         <>
-          New to ELAKAI?{' '}
+          {t('auth.newHere')}{' '}
           <Link
             to={signupHref}
             className="font-bold text-primary underline-offset-4 hover:underline"
           >
-            Create an account
+            {t('auth.createAccount')}
           </Link>
         </>
       }
     >
       {!schemaReady && (
         <div className="mb-5">
-          <FormNotice tone="warning">
-            Contributions are not switched on for this site yet. You can still
-            sign in, but there is nowhere to submit information to.
-          </FormNotice>
+          <FormNotice tone="warning">{t('auth.notOpen')}</FormNotice>
         </div>
       )}
 
@@ -250,11 +249,11 @@ export default function AccountLoginPage() {
           have already started typing before they see it. Renders nothing at all
           when neither provider is configured. */}
       <div className="mb-5">
-        <SocialSignIn intent={intent} verb="Sign in" disabled={busy} />
+        <SocialSignIn intent={intent} verb={t('auth.signIn')} disabled={busy} />
       </div>
 
       <form onSubmit={submit} className="space-y-4" noValidate>
-        <Field id="login-email" label="Email">
+        <Field id="login-email" label={t('auth.email')}>
           <Input
             id="login-email"
             type="email"
@@ -266,7 +265,7 @@ export default function AccountLoginPage() {
           />
         </Field>
 
-        <Field id="login-password" label="Password">
+        <Field id="login-password" label={t('auth.password')}>
           <div className="relative">
             <Input
               id="login-password"
@@ -282,7 +281,7 @@ export default function AccountLoginPage() {
             <button
               type="button"
               onClick={() => setReveal((v) => !v)}
-              aria-label={reveal ? 'Hide password' : 'Show password'}
+              aria-label={reveal ? t('auth.hidePassword') : t('auth.showPassword')}
               aria-pressed={reveal}
               className={cn(
                 'absolute inset-y-0 right-0 grid w-12 place-items-center rounded-r-control',
@@ -298,9 +297,7 @@ export default function AccountLoginPage() {
         {error && <FormNotice tone="danger">{error}</FormNotice>}
 
         {resetSent ? (
-          <FormNotice tone="success">
-            If that address has an account, a reset link is on its way to it.
-          </FormNotice>
+          <FormNotice tone="success">{t('auth.resetSent')}</FormNotice>
         ) : (
           <div className="flex justify-end">
             <button
@@ -318,7 +315,7 @@ export default function AccountLoginPage() {
                */
               className="-my-1.5 rounded-control px-1 py-2 text-meta font-semibold text-ink-muted underline-offset-4 transition-colors hover:text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
-              Forgot your password?
+              {t('auth.forgot')}
             </button>
           </div>
         )}
@@ -333,7 +330,7 @@ export default function AccountLoginPage() {
           ) : (
             <LogIn aria-hidden="true" />
           )}
-          {busy ? 'Signing in…' : 'Sign in'}
+          {busy ? t('auth.signingIn') : t('auth.signIn')}
         </Button>
       </form>
     </AuthShell>

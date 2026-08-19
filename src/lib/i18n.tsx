@@ -254,6 +254,49 @@ const en = {
   'footer.about': 'ELAKAI is a free public directory for the people of Kushtia.',
   'footer.rights': 'All rights reserved.',
   'footer.map': 'Map data',
+
+  /* ---- Contributor -------------------------------------------------
+     The contributor surfaces were written in English only while the rest
+     of the site was bilingual and defaults to Bangla. Somebody who has
+     browsed ELAKAI entirely in Bangla signed in to contribute and hit an
+     English dashboard — the one place asking them to do work. */
+  'contribute.stat.total': 'Total',
+  'contribute.stat.approved': 'Approved',
+  'contribute.stat.pending': 'Pending',
+  'contribute.stat.rejected': 'Not accepted',
+  'contribute.stat.points': 'Points',
+  'contribute.cta.title': 'Know somewhere that is missing?',
+  'contribute.cta.body':
+    'Add it and an administrator will check it. Approved information earns you 50 points.',
+  'contribute.cta.action': 'Submit information',
+  'contribute.recent': 'Recent activity',
+  'contribute.seeAll': 'See all',
+  'contribute.empty.title': 'Nothing yet',
+  'contribute.empty.body':
+    'When you submit information it appears here with its status, so you can see what is waiting and what went live.',
+  'contribute.empty.action': 'Submit your first',
+  'contribute.status.pending': 'Pending review',
+  'contribute.status.approved': 'Approved',
+  'contribute.status.rejected': 'Not accepted',
+
+  /* ---- Auth ----
+     Same problem as the contributor dashboard: the sign-in page, which is the
+     door to contributing, was English-only on a Bangla-first site. */
+  'auth.signIn': 'Sign in',
+  'auth.signingIn': 'Signing in…',
+  'auth.email': 'Email',
+  'auth.password': 'Password',
+  'auth.showPassword': 'Show password',
+  'auth.hidePassword': 'Hide password',
+  'auth.forgot': 'Forgot your password?',
+  'auth.resetSent': 'If that address has an account, a reset link is on its way to it.',
+  'auth.welcome': 'Welcome back',
+  'auth.welcomeSub': 'Sign in to submit information and track your contributions.',
+  'auth.newHere': 'New to ELAKAI?',
+  'auth.createAccount': 'Create an account',
+  'auth.continueBrowsing': 'Continue browsing',
+  'auth.notOpen':
+    'Contributions are not switched on for this site yet. You can still sign in, but there is nowhere to submit information to.',
   'footer.explore': 'Explore',
 
   /* ---- Landing page ------------------------------------------------------
@@ -558,6 +601,43 @@ const bn: Record<TranslationKey, string> = {
   'footer.about': 'ELAKAI কুষ্টিয়ার মানুষের জন্য একটি ফ্রি পাবলিক ডিরেক্টরি।',
   'footer.rights': 'সর্বস্বত্ব সংরক্ষিত।',
   'footer.map': 'মানচিত্রের উৎস',
+
+  /* ---- Contributor ---- */
+  'contribute.stat.total': 'মোট',
+  'contribute.stat.approved': 'অনুমোদিত',
+  'contribute.stat.pending': 'অপেক্ষমাণ',
+  'contribute.stat.rejected': 'গৃহীত হয়নি',
+  'contribute.stat.points': 'পয়েন্ট',
+  'contribute.cta.title': 'কোনো তথ্য বাদ পড়েছে?',
+  'contribute.cta.body':
+    'যোগ করুন, একজন প্রশাসক সেটি যাচাই করবেন। অনুমোদিত তথ্যের জন্য ৫০ পয়েন্ট।',
+  'contribute.cta.action': 'তথ্য জমা দিন',
+  'contribute.recent': 'সাম্প্রতিক কার্যক্রম',
+  'contribute.seeAll': 'সব দেখুন',
+  'contribute.empty.title': 'এখনো কিছু নেই',
+  'contribute.empty.body':
+    'আপনি তথ্য জমা দিলে সেটি স্ট্যাটাসসহ এখানে দেখা যাবে — কোনটি অপেক্ষায় আছে আর কোনটি প্রকাশিত হয়েছে।',
+  'contribute.empty.action': 'প্রথম তথ্যটি জমা দিন',
+  'contribute.status.pending': 'পর্যালোচনার অপেক্ষায়',
+  'contribute.status.approved': 'অনুমোদিত',
+  'contribute.status.rejected': 'গৃহীত হয়নি',
+
+  /* ---- Auth ---- */
+  'auth.signIn': 'সাইন ইন',
+  'auth.signingIn': 'সাইন ইন হচ্ছে…',
+  'auth.email': 'ইমেইল',
+  'auth.password': 'পাসওয়ার্ড',
+  'auth.showPassword': 'পাসওয়ার্ড দেখান',
+  'auth.hidePassword': 'পাসওয়ার্ড লুকান',
+  'auth.forgot': 'পাসওয়ার্ড ভুলে গেছেন?',
+  'auth.resetSent': 'ওই ঠিকানায় অ্যাকাউন্ট থাকলে রিসেট লিংক পাঠানো হয়েছে।',
+  'auth.welcome': 'আবার স্বাগতম',
+  'auth.welcomeSub': 'তথ্য জমা দিতে ও নিজের অবদান দেখতে সাইন ইন করুন।',
+  'auth.newHere': 'ELAKAI-তে নতুন?',
+  'auth.createAccount': 'অ্যাকাউন্ট তৈরি করুন',
+  'auth.continueBrowsing': 'ব্রাউজিং চালিয়ে যান',
+  'auth.notOpen':
+    'এই সাইটে এখনো তথ্য জমা দেওয়ার সুবিধা চালু হয়নি। আপনি সাইন ইন করতে পারবেন, তবে জমা দেওয়ার জায়গা নেই।',
   'footer.explore': 'ঘুরে দেখুন',
 
   'lp.nav.what': 'পরিচিতি',

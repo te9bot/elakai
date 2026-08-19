@@ -3,6 +3,7 @@ import { ArrowLeft } from 'lucide-react'
 
 import { AuthBrandPanel } from '@/components/account/auth-brand-panel'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/lib/i18n'
 import logo from '../../../assets/elakai-logo.png'
 
 /* ==========================================================================
@@ -50,7 +51,7 @@ export function AuthShell({
   footer,
   /** Shown above the form. Lets someone abandon the flow and keep browsing. */
   backTo = '/',
-  backLabel = 'Continue browsing',
+  backLabel,
   /** Widens the form column for the two-column signup. */
   wide = false,
 }: {
@@ -62,6 +63,18 @@ export function AuthShell({
   backLabel?: string
   wide?: boolean
 }) {
+  /*
+   * The default label is translated here rather than being a literal in the
+   * parameter list.
+   *
+   * It used to be `backLabel = 'Continue browsing'`, which meant the one
+   * control on the page whose whole job is to let somebody leave was English
+   * on a site that defaults to Bangla — and no caller could see it to override
+   * it, because a default in a signature is invisible from the call site.
+   */
+  const { t } = useI18n()
+  const back = backLabel ?? t('auth.continueBrowsing')
+
   return (
     <main className="grid min-h-dvh bg-canvas lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
       <AuthBrandPanel />
@@ -85,7 +98,7 @@ export function AuthShell({
             )}
           >
             <ArrowLeft className="size-4" aria-hidden="true" />
-            {backLabel}
+            {back}
           </Link>
 
           {/*
