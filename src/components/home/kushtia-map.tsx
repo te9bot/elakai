@@ -567,7 +567,22 @@ function depthTier(): number {
   if (typeof window === 'undefined' || !window.matchMedia) return 1
   if (window.matchMedia('(min-width: 1024px)').matches) return 1
   if (window.matchMedia('(min-width: 768px)').matches) return 0.6
-  return 0.36
+  /*
+   * A phone gets a fifth, not the third it used to.
+   *
+   * At 0.36 the stage travelled the mid layer's 58px times the tier — about
+   * 21px across the whole document. That is more travel than a 6-inch screen
+   * needs to read as depth, and every pixel of it is extra area the compositor
+   * has to cover as the oversized stage moves under the viewport. 0.2 puts it
+   * near 12px, which is inside the range the backdrop is meant to sit in and
+   * still plainly visible against content that is moving a whole screen.
+   *
+   * This is the map's tier only. lib/parallax.ts keeps its own for the section
+   * layers, deliberately: those were measured with `will-change` and found to
+   * be *faster* promoted, so quietly shrinking them here would be changing
+   * something that was already tuned against real numbers.
+   */
+  return 0.2
 }
 
 /**
@@ -923,7 +938,15 @@ function KushtiaMapImpl({
     // Not a motion preference but a capability check, so it stays local: a
     // coarse pointer has no hover position to track, and the listener would
     // cost work and never move anything. Scroll still applies on touch.
-    const fine = window.matchMedia('(pointer: fine)').matches
+    //
+    // Both halves are required, and `hover` is the one that matters. A laptop
+    // with a touchscreen reports `pointer: fine` for its trackpad, and so does
+    // a phone the moment a stylus or a mouse is paired — `pointer: fine` alone
+    // would attach a mousemove listener on hardware that has no hovering
+    // cursor to follow. `hover: hover` is the feature that actually asks
+    // whether the primary input can rest over the page without committing to a
+    // press, which is exactly the thing this parallax reads.
+    const fine = window.matchMedia('(hover: hover) and (pointer: fine)').matches
 
     /*
      * How far through the document the reader is, 0 to 1. The one number the

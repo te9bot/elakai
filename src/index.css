@@ -398,6 +398,42 @@
     }
   }
 
+  /*
+     On a phone, no blur at all on the bars.
+
+     THE RADIUS WAS NEVER THE EXPENSIVE PART. Dropping 14px to 10px above
+     changes what the GPU pays per pixel; it does not change how many pixels it
+     pays for, or how often. `backdrop-filter` makes the compositor copy the
+     region behind the element and filter it on every frame that region changes
+     — and for a sticky header and a fixed bottom nav the region behind them is
+     the page, which changes on every single frame of every scroll. Measured on
+     the home page at 390x844: 47,580 css px² of permanently-on-screen blurred
+     bar, which at device pixel ratio 3 is about 428,000 device pixels of
+     gaussian blur plus saturation per frame, on the weakest GPU the site runs
+     on. It is paid whether or not anything else is animating, and it is why
+     scrolling stayed rough on real phones after the main thread was already
+     clean — the cost was never on the main thread to find.
+
+     THE APPEARANCE IS NOT INVENTED. Both values below are the ones this file
+     already specifies for browsers without `backdrop-filter` support, in the
+     `@supports not` block a few lines down. That fallback was written so a
+     translucent panel never floats over a busy hero with nothing separating it
+     from the map; a phone gets exactly that treatment, which is a design this
+     project already made and approved rather than a new one. Slightly under
+     full opacity keeps the bar reading as a surface laid over the district
+     rather than a slab cut out of it.
+
+     Tablets keep the reduced blur. They are the tier that has both the fill
+     rate to afford it and a display large enough for it to read.
+  */
+  @media (max-width: 767px) {
+    .glass {
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      background-color: hsl(var(--surface) / 0.96);
+    }
+  }
+
   @supports not (backdrop-filter: blur(1px)) {
     .glass {
       background-color: hsl(var(--surface) / 0.98);
@@ -466,6 +502,38 @@
      leaving translucent panels stacked over a busy hero with nothing
      separating them. */
   @supports not (backdrop-filter: blur(1px)) {
+    .glass-danger {
+      background-color: hsl(var(--danger-soft));
+    }
+    .glass-surface {
+      background-color: hsl(var(--surface));
+    }
+  }
+
+  /*
+     And no blur on these on a phone either, for the same reason as the bars —
+     with one difference that makes it worse rather than better.
+
+     These are not fixed. They scroll, which means the region behind them is
+     moving relative to them on every frame, so the filter cannot be cached and
+     reused the way a static backdrop sometimes can. The radius is also the
+     largest on the site at 16px, and blur cost scales with radius. Measured on
+     the home page there are three of these on screen at once at 390px wide,
+     and the Emergency list is explicitly allowed to show several.
+
+     The `box-shadow` above stays. It is drawn once into the layer and does not
+     re-sample anything behind it, so it is not part of this cost — and it is
+     what keeps the card reading as lifted once the blur is gone.
+
+     Colour falls through to the `@supports` values directly above, which is
+     the same opaque treatment a browser without blur support already gets.
+  */
+  @media (max-width: 767px) {
+    .glass-danger,
+    .glass-surface {
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
     .glass-danger {
       background-color: hsl(var(--danger-soft));
     }
