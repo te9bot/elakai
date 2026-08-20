@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { AnimatePresence, m } from 'framer-motion'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -29,7 +30,9 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatusPill, formatDateTime } from '@/components/contribute/contribute-parts'
 import { sectionLabel } from '@/lib/listings'
+import { useReducedMotion } from '@/lib/motion'
 import { formatPhone, isDialable } from '@/lib/phone'
+import { pressPulse } from '@/lib/press'
 import { categoriesFor, categoryLabel, sectionSpec } from '@/lib/submission-fields'
 import {
   adminGetSubmission,
@@ -80,6 +83,24 @@ export default function AdminSubmissionReviewPage() {
   const [confirmApprove, setConfirmApprove] = useState(false)
   const [rejecting, setRejecting] = useState(false)
 
+  const reduced = useReducedMotion()
+  const approveRef = useRef<HTMLButtonElement>(null)
+  const rejectRef = useRef<HTMLButtonElement>(null)
+
+  /**
+   * How long the decided state stays on screen before the queue comes back.
+   *
+   * §18 puts the whole approval at 300–450ms and §21 puts the status change at
+   * 200–300ms; this is the second of those plus enough to read the result. It
+   * is not a stall — the work is finished, the record is on screen saying what
+   * happened to it, and leaving before anybody can see that is what the brief's
+   * "approved status settles" step exists to prevent.
+   *
+   * Zero under reduced motion: there is no transition to watch, so the wait
+   * would be a wait and nothing else.
+   */
+  const settleMs = reduced ? 0 : 480
+
   const s = query.data ?? null
 
   // Reset the pending edits whenever a different submission is opened, so
@@ -92,6 +113,16 @@ export default function AdminSubmissionReviewPage() {
   const approve = useMutation({
     mutationFn: () => approveSubmission(id, Object.keys(edits).length ? edits : undefined),
     onSuccess: async (result) => {
+      /*
+       * §20 — the success state is reached here and nowhere earlier.
+       *
+       * Awaiting the invalidation before anything else is what makes the
+       * transition below honest: by the time it plays, `submissions.status` has
+       * been re-read from Postgres and really does say 'approved'. Nothing on
+       * this screen animates toward a result the database has not confirmed,
+       * and a failure never reaches this callback at all — it goes to onError,
+       * which leaves the Decision card exactly as it was.
+       */
       await queryClient.invalidateQueries({ queryKey: ['admin'] })
       if (result.alreadyReviewed) {
         /*
@@ -104,7 +135,17 @@ export default function AdminSubmissionReviewPage() {
       } else {
         toast(`Approved. It is now public, and 50 RP Points went to the contributor.`, 'success')
       }
-      navigate('/admin/submissions')
+      /*
+       * §21 — the status settles before the screen changes.
+       *
+       * The invalidation above has already flipped this page from the Decision
+       * card to the Reviewed card and the pill from Pending to Approved. Leaving
+       * in the same tick would replace all of that with the queue before a
+       * single frame of it had been painted, which is the instant text
+       * replacement the brief asks to avoid — just at the scale of a whole
+       * screen rather than a word.
+       */
+      window.setTimeout(() => navigate('/admin/submissions'), settleMs)
     },
     onError: (error) => toast(submissionError(error), 'error'),
   })
@@ -115,7 +156,10 @@ export default function AdminSubmissionReviewPage() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['admin'] })
       toast('Rejected. Nothing was published and no RP Points were awarded.', 'success')
-      navigate('/admin/submissions')
+      // Same settle as the approval above: the pill and the card have just
+      // changed, and leaving before either is painted makes a decision feel
+      // like it went nowhere.
+      window.setTimeout(() => navigate('/admin/submissions'), settleMs)
     },
     onError: (error) => toast(submissionError(error), 'error'),
   })
@@ -164,7 +208,34 @@ export default function AdminSubmissionReviewPage() {
               .join(' · ')}
           </p>
         </div>
-        <StatusPill status={s.status} className="shrink-0" />
+        {/*
+         * §21 — Pending gives way to Approved rather than being overwritten.
+         *
+         * `mode="wait"` so the two never overlap: the old word leaves, then the
+         * new one arrives. Crossfading them puts "PendingApproved" on screen for
+         * 120ms, which is the one thing a status badge must never say.
+         *
+         * `initial={false}` keeps it quiet on load — a submission that was
+         * already approved when the page opened has not just changed, and
+         * animating it would claim otherwise.
+         *
+         * Opacity and a 4px slide only. The pill does not resize, does not
+         * bounce and does not change colour on its way; it is the same component
+         * with the same tokens, swapped.
+         */}
+        <div className="shrink-0">
+          <AnimatePresence mode="wait" initial={false}>
+            <m.div
+              key={s.status}
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 4, transition: { duration: 0.1 } }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <StatusPill status={s.status} />
+            </m.div>
+          </AnimatePresence>
+        </div>
       </div>
 
       {s.duplicateHint && (
@@ -424,6 +495,28 @@ export default function AdminSubmissionReviewPage() {
         <div className="space-y-5 lg:sticky lg:top-20">
           <ContributorCard submission={s} />
 
+          {/*
+           * §20 — the approved state settles in.
+           *
+           * 0.98 and 0.90, exactly as the brief specifies, over 220ms. It is a
+           * card arriving to say what was decided, not a celebration: no
+           * spring, no overshoot, no colour flash. The card's own
+           * success-tinted border and background — which already existed — do
+           * the rest.
+           *
+           * Keyed on the status so this plays on the transition and not on
+           * every re-render of the same state, and `initial={false}` so opening
+           * an already-reviewed submission shows the card rather than animating
+           * a decision that was made last week.
+           */}
+          <AnimatePresence mode="wait" initial={false}>
+          <m.div
+            key={s.status === 'pending' ? 'decision' : 'reviewed'}
+            initial={{ opacity: 0.9, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.12 } }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+          >
           {s.status === 'pending' ? (
             <Card className="p-5">
               <h2 className="text-heading">Decision</h2>
@@ -436,11 +529,25 @@ export default function AdminSubmissionReviewPage() {
               )}
 
               <div className="mt-4 space-y-2.5">
+                {/*
+                 * §19 — the press is acknowledged the instant it happens, and
+                 * says nothing about what follows. It is not a loading state
+                 * and not a success: the spinner below is the first, and the
+                 * card transition above is the second.
+                 *
+                 * The button's own design is untouched — same variant, same
+                 * size, same icon, same label. `pressPulse` plays a 90ms
+                 * transform on the element and leaves nothing behind.
+                 */}
                 <Button
+                  ref={approveRef}
                   block
                   size="lg"
                   disabled={busy}
-                  onClick={() => setConfirmApprove(true)}
+                  onClick={() => {
+                    pressPulse(approveRef.current, reduced)
+                    setConfirmApprove(true)
+                  }}
                 >
                   {approve.isPending ? (
                     <Loader2 className="animate-spin" aria-hidden="true" />
@@ -451,11 +558,18 @@ export default function AdminSubmissionReviewPage() {
                 </Button>
 
                 <Button
+                  ref={rejectRef}
                   block
                   size="lg"
                   variant="soft-danger"
                   disabled={busy}
-                  onClick={() => setRejecting(true)}
+                  onClick={() => {
+                    // The same feedback on the sibling. Two adjacent buttons
+                    // where only one answers to the touch is a bug report
+                    // waiting to be filed.
+                    pressPulse(rejectRef.current, reduced)
+                    setRejecting(true)
+                  }}
                 >
                   <X aria-hidden="true" />
                   Reject
@@ -470,6 +584,8 @@ export default function AdminSubmissionReviewPage() {
           ) : (
             <ReviewedCard submission={s} />
           )}
+          </m.div>
+          </AnimatePresence>
         </div>
       </div>
 

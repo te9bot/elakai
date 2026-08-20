@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 
 import { ToastProvider } from '@/components/admin/toast'
+import { MapBackdrop } from '@/components/layout/map-backdrop'
 import { useAccount } from '@/lib/auth'
 import { adminSubmissionCounts } from '@/lib/submissions'
 import { useTheme } from '@/lib/theme'
@@ -119,7 +120,27 @@ export function AdminShell() {
 
   return (
     <ToastProvider>
-      <div className="min-h-dvh bg-canvas">
+      <div className="relative min-h-dvh">
+      {/*
+        The same district that sits behind the public site and the contributor
+        dashboard, mounted the same way.
+
+        `bg-canvas` used to be on the div above and is gone, because an opaque
+        background on the container is exactly what a `-z-10` layer inside it
+        cannot be seen through. The colour is not lost: `body` carries
+        `bg-canvas` from src/index.css, so the page floor is unchanged and the
+        map paints between that floor and the panel — which is the same
+        arrangement AppShell has always used.
+
+        Everything on top keeps its own opaque surface. The sidebar is
+        `bg-surface`, cards and tables are `bg-surface`, and the header is
+        `bg-canvas/85` over a backdrop blur. So the map is visible in the
+        gutters around the content and nowhere that anybody is reading, and the
+        admin panel now reads as the same product as the site it administers
+        rather than as a separate tool.
+      */}
+      <MapBackdrop />
+
       {/* ---- Sidebar ---- */}
       <aside
         className={cn(

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -39,7 +39,9 @@ import {
   setListingStatus,
   type ListingSort,
 } from '@/lib/listings-admin'
+import { useReducedMotion } from '@/lib/motion'
 import { formatPhone, isDialable } from '@/lib/phone'
+import { captureRows, playFlip, tossToTarget, type FlipSnapshot } from '@/lib/toss'
 import { cn } from '@/lib/utils'
 
 /* ==========================================================================
@@ -166,14 +168,119 @@ export default function AdminListingsPage() {
     onError: (error) => toast(errorMessage(error, 'Could not change the status.'), 'error'),
   })
 
+  /* ------------------------------------------------------------------ *
+   * Deleting a listing
+   *
+   * The animation and the request start together and are then reconciled: the
+   * row is thrown at the trash while Supabase is asked to delete it, and what
+   * happens next depends entirely on Supabase's answer (§16).
+   *
+   *   confirmed → wait for the throw to land, drop the row, let the list settle
+   *   refused   → put the row back exactly as it was, and say why
+   *
+   * There is no path in which the row disappears because an animation finished.
+   * `remove.mutateAsync` is awaited before anything is removed from the cache,
+   * so a refusal — an expired session, an RLS policy, a dropped connection —
+   * leaves the screen showing the truth.
+   * ------------------------------------------------------------------ */
+
+  const reduced = useReducedMotion()
+
+  /** The `<tbody>`, and the rows and trash buttons inside it, by listing id. */
+  const bodyRef = useRef<HTMLTableSectionElement>(null)
+  const rowNodes = useRef(new Map<number, HTMLTableRowElement>())
+  const trashNodes = useRef(new Map<number, HTMLButtonElement>())
+
+  /**
+   * §17. One deletion at a time, tracked here rather than on the mutation.
+   *
+   * `remove.isPending` is not enough on its own: it goes false the moment the
+   * network answers, but the thrown row is still in the air for up to another
+   * 300ms and the list has not settled yet. A second delete accepted in that
+   * window produces two clones, two FLIP snapshots and a list that reflows from
+   * a position it was never in.
+   */
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+
+  /* The row positions from just before the deleted row left the DOM. */
+  const flipFrom = useRef<FlipSnapshot | null>(null)
+
+  useLayoutEffect(() => {
+    if (!flipFrom.current) return
+    // In a layout effect, so the inverse transform is applied in the same frame
+    // React removed the row — there is never a painted frame of the settled
+    // position before the animation starts.
+    playFlip(bodyRef.current, flipFrom.current, { reduced })
+    flipFrom.current = null
+  })
+
   const remove = useMutation({
     mutationFn: (listing: Listing) => deleteListing(listing),
-    onSuccess: () => {
-      toast('Listing deleted.')
-      refresh()
-    },
-    onError: (error) => toast(errorMessage(error, 'Could not delete the listing.'), 'error'),
   })
+
+  const runDelete = useCallback(
+    async (listing: Listing) => {
+      if (deletingId !== null) return
+      setDeletingId(listing.id)
+
+      const row = rowNodes.current.get(listing.id) ?? null
+      /*
+       * §7 — the real trash, at its real position. This is the button the admin
+       * pressed to open the confirmation, so the row goes back to where the
+       * decision was made. Null when the row has scrolled out or the layout has
+       * changed under us, and `tossToTarget` degrades to a fade rather than
+       * throwing at a guess.
+       */
+      const trash = trashNodes.current.get(listing.id) ?? null
+
+      // Started first, and not awaited yet. The animation must never sit in
+      // front of the request — §4's "do not delay the user unnecessarily".
+      const request = remove.mutateAsync(listing)
+      // Swallowed here so a rejection that arrives before the await below does
+      // not surface as an unhandled rejection. The real handling is in the
+      // catch.
+      request.catch(() => {})
+
+      // One frame, so the confirmation dialog's overlay is gone before the
+      // clone flies across the space it occupied.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+
+      const toss = row ? tossToTarget({ source: row, target: trash, reduced }) : null
+
+      try {
+        await request
+        // Only now, and only because Supabase confirmed it.
+        await toss?.finished
+
+        flipFrom.current = captureRows(bodyRef.current)
+
+        /*
+         * Removed from the cache directly rather than by refetching.
+         *
+         * The row has to leave in the same commit the FLIP measures against, or
+         * the snapshot above is stale by the time the list changes — the admin
+         * may have scrolled, and every delta would be wrong by the scroll
+         * distance. `refresh()` below still runs and still reconciles with the
+         * server; this only decides which frame the gap closes on.
+         */
+        queryClient.setQueryData<Listing[]>(['admin', 'listings', params], (current) =>
+          current?.filter((l) => l.id !== listing.id),
+        )
+
+        toast('Listing deleted.')
+        refresh()
+      } catch (error) {
+        // §16. The clone goes, the row comes back, and the message says what
+        // actually happened. Nothing was deleted and the screen agrees.
+        toss?.restore()
+        toast(errorMessage(error, 'Could not delete the listing.'), 'error')
+      } finally {
+        setDeletingId(null)
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [deletingId, reduced, remove, queryClient, toast, params],
+  )
 
   // Scoped to the chosen section so the dropdown never offers a category that
   // cannot match anything alongside it.
@@ -328,15 +435,30 @@ export default function AdminListingsPage() {
                       <Th className="text-right">Actions</Th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody ref={bodyRef}>
                     {rows.map((listing) => (
                       <Row
                         key={listing.id}
                         listing={listing}
                         busy={
                           (toggleStatus.isPending && toggleStatus.variables?.id === listing.id) ||
-                          (remove.isPending && remove.variables?.id === listing.id)
+                          deletingId === listing.id
                         }
+                        /*
+                         * §17 in the interface: while one row is being thrown,
+                         * every other row's delete is closed too. Two deletions
+                         * in flight is not a state this screen has an honest
+                         * picture for.
+                         */
+                        deleteLocked={deletingId !== null}
+                        register={(node) => {
+                          if (node) rowNodes.current.set(listing.id, node)
+                          else rowNodes.current.delete(listing.id)
+                        }}
+                        registerTrash={(node) => {
+                          if (node) trashNodes.current.set(listing.id, node)
+                          else trashNodes.current.delete(listing.id)
+                        }}
                         onToggle={() =>
                           toggleStatus.mutate({
                             id: listing.id,
@@ -372,13 +494,22 @@ export default function AdminListingsPage() {
         }
         confirmLabel="Delete"
         destructive
-        onConfirm={async () => {
-          if (!pendingDelete) return
-          await remove.mutateAsync(pendingDelete).catch(() => {
-            // The mutation's onError has already reported this; swallowing here
-            // keeps the dialog from rethrowing into an unhandled rejection.
-          })
+        /*
+         * Deliberately NOT awaited, and the dialog is closed first.
+         *
+         * ConfirmDialog closes itself once `onConfirm` resolves, so awaiting the
+         * deletion here would hold the modal — and its dimmed overlay — over the
+         * whole animation. The row would be thrown behind a scrim at the trash
+         * button it is being thrown at, and neither would be visible.
+         *
+         * Closing first and returning immediately puts the interaction back on
+         * the screen it belongs to. The confirmation has been given; there is
+         * nothing left for the dialog to ask.
+         */
+        onConfirm={() => {
+          const listing = pendingDelete
           setPendingDelete(null)
+          if (listing) void runDelete(listing)
         }}
       />
     </>
@@ -403,11 +534,19 @@ function Th({ children, className }: { children: React.ReactNode; className?: st
 function Row({
   listing,
   busy,
+  deleteLocked,
+  register,
+  registerTrash,
   onToggle,
   onDelete,
 }: {
   listing: Listing
   busy: boolean
+  deleteLocked: boolean
+  /** Hands the row element up so it can be measured and cloned. */
+  register: (node: HTMLTableRowElement | null) => void
+  /** Hands up the trash button — the thing the row is thrown at. */
+  registerTrash: (node: HTMLButtonElement | null) => void
   onToggle: () => void
   onDelete: () => void
 }) {
@@ -415,9 +554,17 @@ function Row({
 
   return (
     <tr
+      ref={register}
+      // The identity the FLIP follows through the change. See lib/toss.ts: an
+      // index would name a different row after a deletion.
+      data-flip-key={String(listing.id)}
       className={cn(
         'border-b border-line last:border-0 transition-colors hover:bg-surface-2',
-        busy && 'opacity-50',
+        // Not dimmed while deleting. The row is about to be picked up and
+        // thrown, and fading it first means the thing that lifts off is already
+        // half gone — which reads as two different animations disagreeing about
+        // what is happening. The toggle keeps its dim; the delete does not.
+        busy && !deleteLocked && 'opacity-50',
       )}
     >
       <td className="px-4 py-3">
@@ -531,11 +678,18 @@ function Row({
               <Pencil aria-hidden="true" />
             </Link>
           </Button>
+          {/*
+           * The delete control, and the target the row is thrown into (§7, §13).
+           * Unchanged in every visual respect — same variant, same icon, same
+           * size, same colours. What is new is that something now knows where it
+           * is on screen.
+           */}
           <Button
+            ref={registerTrash}
             variant="ghost"
             size="icon-sm"
             onClick={onDelete}
-            disabled={busy}
+            disabled={busy || deleteLocked}
             aria-label={`Delete ${listing.title || 'listing'}`}
             title="Delete"
             className="text-danger hover:bg-danger-soft"

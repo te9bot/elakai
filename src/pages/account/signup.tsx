@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Loader2, MailCheck, UserPlus } from 'lucide-react'
+import { Eye, EyeOff, Loader2, UserPlus } from 'lucide-react'
 
 import {
   AuthShell,
@@ -8,11 +8,14 @@ import {
   Field,
   FormNotice,
 } from '@/components/account/auth-shell'
+import { OtpVerify } from '@/components/account/otp-verify'
+import { PasswordRequirements } from '@/components/account/password-requirements'
 import { SignInTransition } from '@/components/account/sign-in-transition'
 import { SocialSignIn } from '@/components/account/social-sign-in'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAccount } from '@/lib/auth'
+import { evaluatePassword, PASSWORD_HINT, passwordProblem } from '@/lib/password'
 import {
   confirmationRedirect,
   intentFromSearch,
@@ -37,33 +40,25 @@ import { cn } from '@/lib/utils'
  * creates the profile reads only that. See §7 and §43.
  * ========================================================================== */
 
-/**
- * Eight characters, and that is the whole rule.
+/*
+ * The password rules moved to src/lib/password.ts.
  *
- * Deliberately not a character-class checklist. Requiring an uppercase, a digit
- * and a symbol reliably produces `Password1!` — it moves people toward short
- * passwords that satisfy a regex and away from long ones that do not, which is
- * backwards. Length is the property that actually costs an attacker anything.
- *
- * Supabase's own floor is six. Eight is this form's, checked here so the person
- * is told before the request rather than by a server error afterwards.
+ * They used to be eight lines here with an argument above them for why eight
+ * characters is the only rule and a character-class checklist is a trap. That
+ * argument is intact and now lives beside the rules it describes — along with
+ * the distinction that resolves it against §40: eight characters is REQUIRED
+ * and blocks this form, and the letters/numbers/symbols mix is RECOMMENDED and
+ * never blocks anything. The panel under the field shows both, and shows which
+ * is which.
  */
-const MIN_PASSWORD = 8
 
-function passwordProblem(password: string): string | null {
-  if (password.length < MIN_PASSWORD) {
-    return `Use at least ${MIN_PASSWORD} characters.`
-  }
-  return null
-}
-
-/** Deliberately permissive: the confirmation email is the real check. */
+/** Deliberately permissive: the code we email is the real check. */
 function looksLikeEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value.trim())
 }
 
 export default function AccountSignupPage() {
-  const { status, signUp, schemaReady } = useAccount()
+  const { status, signUp, schemaReady, verifyEmailOtp, resendSignupOtp } = useAccount()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -105,6 +100,14 @@ export default function AccountSignupPage() {
     return `Free to join. You are one step away from adding ${what}.`
   }, [intent])
 
+  /*
+   * Recomputed on every keystroke, which is the point — §41 asks for the panel
+   * to update as the person types. It is five regex tests over a string that is
+   * almost never longer than thirty characters, so there is nothing here worth
+   * debouncing; a debounce would only make the ticks lag behind the typing.
+   */
+  const evaluation = useMemo(() => evaluatePassword(password), [password])
+
   const signedIn = status === 'contributor' || status === 'admin'
 
   if (status === 'unconfigured') {
@@ -130,18 +133,32 @@ export default function AccountSignupPage() {
   if (signedIn && !sentTo) return <Navigate to={destination()} replace />
 
   /*
-   * The confirmation wall.
+   * The verification step.
    *
-   * This project requires email confirmation, so a successful signup produces
-   * an account and no session. Saying "you're in!" here and navigating to a
-   * dashboard would be a lie that resolves into a redirect back to the login
-   * form, which is a worse experience than being told the truth.
+   * WHAT HAS AND HAS NOT HAPPENED BY THE TIME THIS RENDERS
+   *
+   * Supabase has created an `auth.users` row and the trigger from migration
+   * 0008 has created its profile. That is not the same as an account, and this
+   * screen is careful not to call it one: there is no session, `signIn` would
+   * be refused with "email not confirmed", and migration 0013 makes
+   * `is_email_verified()` — which reads `auth.users.email_confirmed_at` — a
+   * precondition on every policy that creates content. So the row exists and
+   * can do nothing at all until the code below is accepted.
+   *
+   * That is §23's "OTP sent does NOT mean OTP verified" enforced in Postgres
+   * rather than promised in a comment. The registration completes when
+   * `verifyEmailOtp` resolves, and at no other moment.
+   *
+   * The emailed link still works, for anyone who prefers it or who opens the
+   * mail on another device — `signUp` still passes `emailRedirectTo` and
+   * /account/callback still handles it. This is a second door, not a
+   * replacement for the first.
    */
   if (sentTo) {
     return (
       <AuthShell
-        title="Check your email"
-        subtitle={`We sent a confirmation link to ${sentTo}.`}
+        title="Confirm your email"
+        subtitle="One code, and your account is ready."
         footer={
           <>
             Wrong address?{' '}
@@ -155,19 +172,30 @@ export default function AccountSignupPage() {
           </>
         }
       >
-        <div className="flex flex-col items-center gap-4 text-center">
-          <span className="grid size-14 place-items-center rounded-full bg-primary-soft text-primary-ink">
-            <MailCheck className="size-6" aria-hidden="true" />
-          </span>
-          <p className="text-body-sm text-ink-muted">
-            Open the link to finish setting up your account. It takes you
-            {intent ? ' straight back to what you were adding' : ' straight to your dashboard'}.
-          </p>
-          <p className="text-meta text-ink-subtle">
-            Nothing yet? Check the spam folder — the message comes from Supabase
-            on behalf of ELAKAI.
-          </p>
-          <Button variant="secondary" size="md" block asChild>
+        <OtpVerify
+          email={sentTo}
+          onVerify={(token) =>
+            verifyEmailOtp({ email: sentTo, token, purpose: 'signup' })
+          }
+          onResend={() => resendSignupOtp(sentTo)}
+          successMessage="Your account is ready."
+          continueLabel={intent ? 'Continue where you left off' : 'Go to your dashboard'}
+          /*
+           * The same transition every other way in uses. It is not a delay
+           * dressed up as one: `verifyEmailOtp` has already produced a session
+           * and `onAuthStateChange` is reading the role behind it, and this is
+           * where that read is spent rather than on a blank screen.
+           */
+          onContinue={() => setEntering(true)}
+        />
+
+        <p className="mt-6 text-center text-meta text-ink-subtle">
+          Nothing yet? Check the spam folder — the message comes from Supabase
+          on behalf of ELAKAI. The link in it works too.
+        </p>
+
+        <div className="mt-4">
+          <Button variant="ghost" size="sm" block asChild>
             <Link to="/">Continue browsing ELAKAI</Link>
           </Button>
         </div>
@@ -312,7 +340,13 @@ export default function AccountSignupPage() {
         <Field
           id="signup-password"
           label="Password"
-          hint={`At least ${MIN_PASSWORD} characters. A short phrase works well.`}
+          /*
+           * The hint shows until there is something to say about what was
+           * actually typed, then the live panel takes over. Both at once is the
+           * same advice twice, and the panel is the more useful of the two
+           * because it says which half is still missing.
+           */
+          hint={password ? undefined : PASSWORD_HINT}
           error={fieldErrors.password}
         >
           <div className="relative">
@@ -325,11 +359,16 @@ export default function AccountSignupPage() {
               onChange={(e) => setPassword(e.target.value)}
               disabled={busy}
               aria-invalid={!!fieldErrors.password}
-              aria-describedby={describedBy(
-                'signup-password',
-                `At least ${MIN_PASSWORD} characters.`,
-                fieldErrors.password,
-              )}
+              /*
+               * Points at the live panel once it is showing, so a screen reader
+               * reading this field also reads which requirements are met —
+               * rather than announcing an invalid field with no explanation.
+               */
+              aria-describedby={
+                password
+                  ? 'signup-password-rules'
+                  : describedBy('signup-password', PASSWORD_HINT, fieldErrors.password)
+              }
               className="pr-12"
             />
             <button
@@ -346,6 +385,17 @@ export default function AccountSignupPage() {
               {reveal ? <EyeOff className="size-[18px]" /> : <Eye className="size-[18px]" />}
             </button>
           </div>
+
+          {/* Only once there is a password to describe. An empty field with
+              five grey crosses under it reads as five failures before anybody
+              has done anything. */}
+          {password && (
+            <PasswordRequirements
+              id="signup-password-rules"
+              evaluation={evaluation}
+              className="pt-1"
+            />
+          )}
         </Field>
 
         <Field id="signup-confirm" label="Confirm password" error={fieldErrors.confirm}>

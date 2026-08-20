@@ -1,6 +1,7 @@
 import { requireSupabase, supabase } from './supabase'
 import { fromServiceList, toServiceList } from './listings'
 import { toStoredPhone } from './phone'
+import { removeSubmissionImage, submissionImagePath } from './submission-images'
 
 /* ==========================================================================
  * `public.submissions` — the contributor half of the data layer.
@@ -645,5 +646,149 @@ export async function seedFromListing(listingId: number): Promise<SubmissionInpu
     services: [],
     imageUrl: str(row.image_url) || null,
     targetListingId: listingId,
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Deleting a reviewed submission — admin only                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Permanently removes a submission and, if nothing else is using it, its image.
+ *
+ * WHY THIS IS NOT `deleteSubmission` WITH A DIFFERENT CALLER
+ *
+ * `deleteSubmission` above is the contributor withdrawing something they sent
+ * and nobody has looked at yet. This is an administrator destroying the record
+ * of a decision that was already made and published — a different act with
+ * different consequences, which is why it is a different function with its own
+ * name, its own checks and its own paragraph of explanation.
+ *
+ * WHAT IS AND IS NOT DESTROYED
+ *
+ * Deleting the submission row does NOT take the published listing with it.
+ * `submissions.published_listing_id` references `public.listings` with
+ * `on delete set null` in the direction submission → listing, and migration
+ * 0009's trigger runs the other way (deleting a *listing* soft-deletes its
+ * submission). So the live directory entry survives, and it has to be said out
+ * loud in the confirmation, because "delete the approved submission" reads to
+ * most people like "take it off the site" and it does not.
+ *
+ * The contributor's fifty RP Points also survive. `points_transactions
+ * .submission_id` is `on delete set null`, so the ledger row remains with a
+ * null reference and the balance on `profiles` is untouched — the trigger that
+ * maintains it only fires on INSERT. That matches the position migration 0009
+ * already took: the work was genuinely done and genuinely verified at the time,
+ * and the ledger is append-only by design.
+ *
+ * What does go is the contributor's own record of it. The row is what
+ * `listMySubmissions` reads, so the submission disappears from their history
+ * and stops being counted in their statistics.
+ *
+ * AUTHORIZATION, AND WHY THE ROW COUNT IS CHECKED
+ *
+ * `submissions_own_delete` in migration 0008 reads
+ *
+ *     (submitted_by = auth.uid() and status = 'pending') or public.is_admin()
+ *
+ * so an approved row is deletable by an administrator and by nobody else. That
+ * is the actual boundary; this function does not check a role and could not
+ * usefully do so.
+ *
+ * But a DELETE that RLS filters to zero rows is not an error in PostgREST — it
+ * is a successful request that deleted nothing. Without `.select()` and the
+ * length check below, a contributor calling this would be told the deletion
+ * succeeded while the row sat untouched, and the list would appear to lose a
+ * submission until the next refetch put it back. So the returned rows are the
+ * evidence, and their absence is a failure.
+ */
+export async function adminDeleteSubmission(
+  submission: Pick<Submission, 'id' | 'imageUrl'>,
+): Promise<void> {
+  const db = requireSupabase()
+
+  /*
+   * Keyed on the primary key and nothing else.
+   *
+   * Never the title, the phone number or the contributor: two branches of one
+   * pharmacy legitimately share a name and a number, and matching on either
+   * would delete both — or delete the wrong one, silently, with no way to tell
+   * afterwards which it was.
+   */
+  const { data, error } = await db
+    .from('submissions')
+    .delete()
+    .eq('id', submission.id)
+    .select('id')
+
+  if (error) throw new Error(friendly(error.message))
+
+  if (!data || data.length === 0) {
+    throw new Error(
+      'That submission was not deleted. It may already be gone, or your account may not be allowed to remove it.',
+    )
+  }
+
+  // Cleanup, and only cleanup: the row is already gone and a file left behind
+  // is untidy rather than broken, so this never converts into a failure.
+  await removeOrphanedSubmissionImage(submission.imageUrl)
+}
+
+/**
+ * Removes an uploaded image only if nothing else still points at it.
+ *
+ * THE SHARING IS REAL, NOT HYPOTHETICAL
+ *
+ * `approve_submission()` copies `submissions.image_url` straight into
+ * `listings.image_url` — it does not re-upload or copy the object. So after an
+ * approval the *same* file in `elakai-submissions` is what the public site
+ * renders on the live listing. Deleting it along with the submission would
+ * leave a broken image on a published directory entry, which is the exact
+ * failure that matters most here and the least visible from the admin panel.
+ *
+ * A second submission can point at it too: `seedFromListing` carries an
+ * existing `image_url` into a proposed edit, so a contributor updating a
+ * pharmacy's phone number produces a new pending row referencing the same
+ * photograph.
+ *
+ * Both are checked, and a check that *fails* is treated as "still in use".
+ * Keeping an orphaned file costs a few kilobytes; deleting a shared one breaks
+ * a page on the public site.
+ */
+async function removeOrphanedSubmissionImage(imageUrl: string | null): Promise<void> {
+  // Not one of ours — an admin-uploaded image from the other bucket, or a
+  // pasted external URL. Nothing to remove and nothing to check.
+  if (!submissionImagePath(imageUrl)) return
+
+  const db = requireSupabase()
+  const url = imageUrl as string
+
+  try {
+    const [listings, siblings] = await Promise.all([
+      db.from('listings').select('id').eq('image_url', url).limit(1),
+      db.from('submissions').select('id').eq('image_url', url).limit(1),
+    ])
+
+    if (listings.error || siblings.error) {
+      console.info(
+        '[elakai] kept the submission image: could not confirm nothing else uses it.',
+        listings.error?.message ?? siblings.error?.message,
+      )
+      return
+    }
+
+    if ((listings.data?.length ?? 0) > 0) {
+      // The published listing is rendering this file on the public site.
+      return
+    }
+    if ((siblings.data?.length ?? 0) > 0) {
+      // Another submission — most likely a proposed edit seeded from the
+      // listing this one published.
+      return
+    }
+
+    await removeSubmissionImage(url)
+  } catch (thrown) {
+    console.info('[elakai] kept the submission image after a failed usage check.', thrown)
   }
 }

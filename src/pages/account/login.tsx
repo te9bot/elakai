@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Loader2, LogIn } from 'lucide-react'
+import { Eye, EyeOff, KeyRound, Loader2, LogIn } from 'lucide-react'
 
 import {
   AuthShell,
@@ -8,6 +8,7 @@ import {
   Field,
   FormNotice,
 } from '@/components/account/auth-shell'
+import { OtpVerify } from '@/components/account/otp-verify'
 import { SignInTransition } from '@/components/account/sign-in-transition'
 import { SocialSignIn } from '@/components/account/social-sign-in'
 import { Button } from '@/components/ui/button'
@@ -19,6 +20,7 @@ import {
   takeIntent,
   type ContributeIntent,
 } from '@/lib/contribute-intent'
+import { classifySendError } from '@/lib/otp'
 import { cn } from '@/lib/utils'
 
 /**
@@ -29,7 +31,14 @@ import { cn } from '@/lib/utils'
  * session; `profiles.role` is what separates what happens next.
  */
 export default function AccountLoginPage() {
-  const { status, signIn, sendPasswordReset, schemaReady } = useAccount()
+  const {
+    status,
+    signIn,
+    sendPasswordReset,
+    schemaReady,
+    sendLoginOtp,
+    verifyEmailOtp,
+  } = useAccount()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -38,6 +47,16 @@ export default function AccountLoginPage() {
   const [reveal, setReveal] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  /**
+   * The address a code has actually been sent to, or null for the password form.
+   *
+   * Held as the address rather than as a boolean so the OTP screen verifies
+   * against exactly the string that was sent to, not against whatever the email
+   * field contains by then — Supabase matches the code to an address, and a
+   * half-corrected typo in the field would fail a perfectly good code.
+   */
+  const [codeSentTo, setCodeSentTo] = useState<string | null>(null)
 
   const [resetSent, setResetSent] = useState(false)
   const [resetError, setResetError] = useState<string | null>(null)
@@ -118,11 +137,19 @@ export default function AccountLoginPage() {
   const signedIn = status === 'contributor' || status === 'admin'
 
   useEffect(() => {
-    if (signedIn && !entering && !busy) {
+    /*
+     * `!codeSentTo` is what keeps the code screen on screen after it succeeds.
+     *
+     * A verified OTP produces a session, which flips `signedIn`, which would
+     * otherwise navigate away mid-checkmark — the person would see a green tick
+     * for one frame and never reach the Continue button §35 asks for. The
+     * screen owns the exit while it is up, and hands it back by clearing this.
+     */
+    if (signedIn && !entering && !busy && !codeSentTo) {
       // Nothing to animate: they did not just sign in, they already were.
       navigate(destination(), { replace: true })
     }
-  }, [signedIn, entering, busy, navigate, destination])
+  }, [signedIn, entering, busy, codeSentTo, navigate, destination])
 
   // The transition finished before the role arrived. Leave the moment it does.
   useEffect(() => {
@@ -163,7 +190,120 @@ export default function AccountLoginPage() {
     )
   }
 
+  /*
+   * §25 — sign in with a code instead of a password.
+   *
+   * Same shell, same component, same rules as the signup screen: the code goes
+   * to Supabase, Supabase answers, and a session is the only thing that opens
+   * the door. The frontend never decides whether the code was right.
+   */
+  if (codeSentTo) {
+    return (
+      <AuthShell
+        title="Check your email"
+        subtitle="We sent you a sign-in code."
+        footer={
+          <>
+            Rather use your password?{' '}
+            <button
+              type="button"
+              onClick={() => {
+                setCodeSentTo(null)
+                setError(null)
+              }}
+              className="font-bold text-primary underline-offset-4 hover:underline"
+            >
+              Go back
+            </button>
+          </>
+        }
+      >
+        <OtpVerify
+          email={codeSentTo}
+          onVerify={(token) => verifyEmailOtp({ email: codeSentTo, token, purpose: 'login' })}
+          onResend={() => sendLoginOtp(codeSentTo)}
+          successMessage="Signed in."
+          continueLabel="Continue"
+          onContinue={() => {
+            // Cleared first so the effect above is free to route once the
+            // transition finishes, exactly as it does after a password sign-in.
+            setCodeSentTo(null)
+            setEntering(true)
+          }}
+        />
+      </AuthShell>
+    )
+  }
+
   if (signedIn) return <Navigate to={destination()} replace />
+
+  /**
+   * Sends a sign-in code.
+   *
+   * `sendLoginOtp` passes `shouldCreateUser: false`, so an address with no
+   * account is refused by Supabase — and this deliberately does not say so. The
+   * screen reports the same thing either way, for the same reason the password
+   * failure below is deliberately vague: a login form that distinguishes
+   * "wrong password" from "no such account" is a list of which addresses are
+   * registered here, free to anybody with a script.
+   *
+   * The cost is real and is accepted: somebody who mistypes their address waits
+   * for an email that never comes. The resend line on the next screen and the
+   * "Go back" link in its footer are what that person needs, and both are
+   * there.
+   */
+  async function emailCode() {
+    const address = email.trim()
+    if (busy) return
+    setError(null)
+    if (!address) {
+      setError('Enter your email address first.')
+      return
+    }
+
+    setBusy(true)
+    try {
+      await sendLoginOtp(address)
+      setCodeSentTo(address)
+    } catch (err) {
+      const { failure } = classifySendError(err)
+
+      /*
+       * An unknown address advances to the code screen anyway.
+       *
+       * Supabase refuses `shouldCreateUser: false` for an address it has never
+       * seen, and it refuses it distinctively — `otp_disabled`, "Signups not
+       * allowed for otp". Reporting that faithfully would be the enumeration
+       * oracle this whole screen is written to avoid, and reporting it as "not
+       * switched on for this site" would be both an oracle and untrue.
+       *
+       * So the screen behaves identically either way: a code was requested,
+       * here is where to type it. The address that has an account gets an
+       * email. The one that does not gets nothing, and the person finds their
+       * way out through "Go back" in the footer — which is the same bargain the
+       * password reset above already makes with "If that address has an
+       * account…".
+       *
+       * `send_failed` is the classifier's default, so this branch also absorbs
+       * anything unrecognised. That is deliberate: an unrecognised auth error
+       * is exactly the kind whose text should not be shown on a login form.
+       */
+      if (failure === 'send_failed') {
+        setCodeSentTo(address)
+      } else {
+        /*
+         * Rate limiting and network failures are said out loud. Neither reveals
+         * anything about the address — one is about this browser's recent
+         * behaviour and the other is about the connection — and staying silent
+         * about either leaves somebody pressing a button that has quietly
+         * stopped working.
+         */
+        setError(classifySendError(err).message)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -334,6 +474,30 @@ export default function AccountLoginPage() {
             <LogIn aria-hidden="true" />
           )}
           {busy ? 'Signing in…' : 'Sign in'}
+        </Button>
+
+        {/*
+         * §25, offered below the password rather than beside it.
+         *
+         * A code is the better path for somebody who cannot remember a password
+         * on a phone, and the worse path for somebody who has one saved — which
+         * is most people arriving here. So it is present, plainly labelled, and
+         * second. `type="button"` matters: inside a form, a bare button submits
+         * it, and this one must not.
+         *
+         * No new furniture — the existing `secondary` variant, the existing
+         * icon set, the existing block layout.
+         */}
+        <Button
+          type="button"
+          variant="secondary"
+          size="lg"
+          block
+          disabled={busy}
+          onClick={() => void emailCode()}
+        >
+          <KeyRound aria-hidden="true" />
+          Email me a sign-in code
         </Button>
       </form>
     </AuthShell>

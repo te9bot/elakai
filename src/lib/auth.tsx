@@ -90,11 +90,28 @@ export type SignUpResult = {
   /**
    * True when Supabase created the account but issued no session, which is what
    * happens whenever email confirmation is on — as it is on this project.
-   * The caller shows "check your inbox" rather than navigating to a dashboard
-   * the person is not yet signed in to.
+   * The caller shows the code screen rather than navigating to a dashboard the
+   * person is not yet signed in to.
+   *
+   * WORTH SAYING OUT LOUD, BECAUSE IT IS THE THING §23 WARNS ABOUT: this being
+   * true means an email went out. It does not mean anybody read it, and it
+   * certainly does not mean the address was verified. Nothing downstream of
+   * this value may treat the account as confirmed. The only thing that may is
+   * a session returned by `verifyEmailOtp`.
    */
   needsConfirmation: boolean
 }
+
+/**
+ * Which flow a code belongs to.
+ *
+ * Supabase needs to be told, because the two are different token types on the
+ * server: 'signup' verifies the confirmation token minted by `signUp()`, and
+ * 'email' verifies the one minted by `signInWithOtp()`. Sending the wrong one
+ * fails a perfectly good code, so the caller states which screen it is on
+ * rather than this module guessing from the presence of a session.
+ */
+export type OtpPurpose = 'signup' | 'login'
 
 type AccountValue = {
   status: AccountStatus
@@ -131,6 +148,47 @@ type AccountValue = {
     /** Where to land after the confirmation link is clicked. */
     redirectTo?: string
   }) => Promise<SignUpResult>
+  /**
+   * Sends a one-time code to an address that already has an account.
+   *
+   * `shouldCreateUser: false` is the security-relevant argument and it is not
+   * optional: with the default, typing any address into the sign-in form would
+   * create an account for it. That turns a login screen into an unauthenticated
+   * account-creation endpoint and, worse, into an oracle — the response differs
+   * for an address that exists and one that does not.
+   *
+   * Rejecting an unknown address is deliberately NOT surfaced as "no account
+   * with that email". See the caller: it says a code is on its way either way,
+   * for the same enumeration reason the password form gives one message for a
+   * wrong password and a missing account.
+   */
+  sendLoginOtp: (email: string) => Promise<void>
+  /**
+   * Asks Supabase to send the signup confirmation again.
+   *
+   * A distinct call from `sendLoginOtp` because the account exists but is not
+   * confirmed, which is a state `signInWithOtp` refuses.
+   */
+  resendSignupOtp: (email: string) => Promise<void>
+  /**
+   * THE ONLY PLACE A CODE IS JUDGED, AND IT IS NOT JUDGED HERE.
+   *
+   * The code goes to Supabase and Supabase answers. On success the auth server
+   * has written `email_confirmed_at` on the user and issued a session, which is
+   * what `public.is_email_verified()` reads in migration 0013 — so a client
+   * that skipped this call has nothing to skip it with: its requests are
+   * refused by Postgres, not by a check in this file.
+   *
+   * Throws on failure with Supabase's own error intact, so `classifyOtpError`
+   * can tell an expired code from a wrong one. Resolving on success is what
+   * moves the caller's state machine to `otp_verified`; there is no other way
+   * for it to get there.
+   */
+  verifyEmailOtp: (input: {
+    email: string
+    token: string
+    purpose: OtpPurpose
+  }) => Promise<void>
   signOut: () => Promise<void>
   sendPasswordReset: (email: string) => Promise<void>
   /** Re-reads the profile — after a points change, or to retry a failed read. */
@@ -544,6 +602,64 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         // by the caller, so turning autoconfirm on later changes the experience
         // with no code change.
         return { needsConfirmation: !data.session }
+      },
+
+      async sendLoginOtp(email) {
+        if (!supabase) throw new Error('Supabase is not configured.')
+        const { error } = await supabase.auth.signInWithOtp({
+          email: email.trim(),
+          options: {
+            // See the doc comment on the type. Without this, the sign-in form
+            // creates accounts.
+            shouldCreateUser: false,
+          },
+        })
+        // Rethrown as-is rather than wrapped in a new Error: `classifyOtpError`
+        // reads `code` and `status` off the AuthError, and a `new Error(msg)`
+        // would throw both away and leave every failure looking generic.
+        if (error) throw error
+      },
+
+      async resendSignupOtp(email) {
+        if (!supabase) throw new Error('Supabase is not configured.')
+        const { error } = await supabase.auth.resend({
+          type: 'signup',
+          email: email.trim(),
+        })
+        if (error) throw error
+      },
+
+      async verifyEmailOtp({ email, token, purpose }) {
+        if (!supabase) throw new Error('Supabase is not configured.')
+
+        const { data, error } = await supabase.auth.verifyOtp({
+          email: email.trim(),
+          token,
+          type: purpose === 'signup' ? 'signup' : 'email',
+        })
+        if (error) throw error
+
+        /*
+         * A response with no error and no session should not be possible, and
+         * that is exactly why it is checked.
+         *
+         * The failure this guards against is the one the whole brief is about:
+         * a success animation playing over a verification that did not produce
+         * a session. If Supabase ever answers ambiguously, this turns it into a
+         * failure rather than into a green tick, because under-granting is
+         * recoverable and over-granting is not.
+         */
+        if (!data.session) {
+          throw new Error('The code was accepted but no session was issued. Try signing in.')
+        }
+
+        /*
+         * `onAuthStateChange` has already fired for this session and `resolve`
+         * is reading the profile. Nothing is returned and nothing is awaited
+         * here on purpose: the caller's next step is to show the success state,
+         * and the role behind it arrives through the same path every other
+         * sign-in uses.
+         */
       },
 
       async signOut() {

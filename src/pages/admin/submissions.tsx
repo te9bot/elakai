@@ -1,12 +1,18 @@
-import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Link, useSearchParams } from 'react-router-dom'
-import { AlertTriangle, ChevronRight, ImageOff, Inbox } from 'lucide-react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { AlertTriangle, ChevronRight, Eye, ImageOff, Inbox, Trash2 } from 'lucide-react'
 
+import { ConfirmDialog } from '@/components/admin/confirm'
+import { RowAction, RowActions } from '@/components/admin/row-actions'
+import { useToast } from '@/components/admin/toast'
 import { Skeleton } from '@/components/ui/skeleton'
 import { sectionLabel } from '@/lib/listings'
+import { useReducedMotion } from '@/lib/motion'
+import { captureRows, playFlip, tossToTarget, type FlipSnapshot } from '@/lib/toss'
 import { categoryLabel } from '@/lib/submission-fields'
 import {
+  adminDeleteSubmission,
   adminListSubmissions,
   submissionError,
   type AdminQueue,
@@ -59,6 +65,89 @@ export default function AdminSubmissionsPage() {
         .some((field) => String(field).toLowerCase().includes(term)),
     )
   }, [query.data, search])
+
+  /* ------------------------------------------------------------------ *
+   * Deleting an approved submission
+   *
+   * Same shape as the listings table's delete, and deliberately so — the same
+   * `tossToTarget` and the same FLIP, so a deletion feels identical wherever an
+   * administrator performs one. Reusing lib/toss.ts rather than writing a
+   * second animation is the whole reason that file takes a source and a target
+   * instead of knowing about rows.
+   *
+   * Supabase is authoritative here exactly as it is there: the row leaves the
+   * cache only after `adminDeleteSubmission` resolves, and a refusal puts the
+   * card back and says so.
+   * ------------------------------------------------------------------ */
+
+  const { toast } = useToast()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const reduced = useReducedMotion()
+
+  const listRef = useRef<HTMLUListElement>(null)
+  const cardNodes = useRef(new Map<string, HTMLElement>())
+  const menuNodes = useRef(new Map<string, HTMLButtonElement>())
+
+  const [pendingDelete, setPendingDelete] = useState<Submission | null>(null)
+  /** §17's guard, held across the animation as well as the request. */
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const flipFrom = useRef<FlipSnapshot | null>(null)
+  useLayoutEffect(() => {
+    if (!flipFrom.current) return
+    playFlip(listRef.current, flipFrom.current, { reduced })
+    flipFrom.current = null
+  })
+
+  const remove = useMutation({
+    mutationFn: (submission: Submission) => adminDeleteSubmission(submission),
+  })
+
+  const runDelete = useCallback(
+    async (submission: Submission) => {
+      if (deletingId !== null) return
+      setDeletingId(submission.id)
+
+      const card = cardNodes.current.get(submission.id) ?? null
+      // The ⋮ button the delete was chosen from — the same "throw it back where
+      // the decision was made" rule the listings table follows.
+      const menu = menuNodes.current.get(submission.id) ?? null
+
+      const request = remove.mutateAsync(submission)
+      request.catch(() => {})
+
+      // One frame, so the confirmation dialog's overlay is gone before the
+      // clone crosses the space it occupied.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+
+      const toss = card ? tossToTarget({ source: card, target: menu, reduced }) : null
+
+      try {
+        await request
+        await toss?.finished
+
+        flipFrom.current = captureRows(listRef.current)
+
+        // Removed in the same commit the FLIP measures against; `invalidate`
+        // below still reconciles with the server.
+        queryClient.setQueryData<Submission[]>(['admin', 'submissions', queue], (current) =>
+          current?.filter((row) => row.id !== submission.id),
+        )
+
+        toast('Submission deleted successfully.', 'success')
+        // Every admin key: the queue itself, the counts behind the sidebar
+        // badge, and the contributor list whose totals include this row.
+        void queryClient.invalidateQueries({ queryKey: ['admin'] })
+      } catch (error) {
+        toss?.restore()
+        toast(submissionError(error, 'Could not delete the submission.'), 'error')
+      } finally {
+        setDeletingId(null)
+      }
+    },
+    [deletingId, reduced, remove, queryClient, queue, toast],
+  )
 
   return (
     <>
@@ -128,31 +217,143 @@ export default function AdminSubmissionsPage() {
         ) : rows.length === 0 ? (
           <Empty queue={queue} filtered={!!search.trim()} />
         ) : (
-          <ul className="space-y-2">
+          <ul ref={listRef} className="space-y-2">
             {rows.map((s) => (
               <li key={s.id}>
-                <QueueRow submission={s} />
+                <QueueRow
+                  submission={s}
+                  /*
+                   * The menu is offered on approved rows only.
+                   *
+                   * Not an inconsistency — it is the only queue with a
+                   * destructive action to put in a menu. A ⋮ on a pending row
+                   * would open onto "View details", which is what clicking the
+                   * card already does, so it would be an extra control that
+                   * duplicates the card it sits on. Pending and rejected cards
+                   * are therefore exactly as they were.
+                   *
+                   * Edit is deliberately absent even here. An approved
+                   * submission cannot be edited at all: `guard_submission_status`
+                   * in migration 0008 raises on any UPDATE to a row whose old
+                   * status is 'approved', because the row is the record of what
+                   * was approved. A menu item for it would be a button that
+                   * always fails.
+                   */
+                  actions={s.status === 'approved'}
+                  busy={deletingId === s.id}
+                  locked={deletingId !== null}
+                  register={(node) => {
+                    if (node) cardNodes.current.set(s.id, node)
+                    else cardNodes.current.delete(s.id)
+                  }}
+                  registerMenu={(node) => {
+                    if (node) menuNodes.current.set(s.id, node)
+                    else menuNodes.current.delete(s.id)
+                  }}
+                  onView={() => navigate(`/admin/submissions/${s.id}`)}
+                  onDelete={() => setPendingDelete(s)}
+                />
               </li>
             ))}
           </ul>
         )}
       </div>
+
+      {/*
+        What is actually about to happen, rather than "are you sure?".
+        Three consequences, and two of them are the ones an administrator is
+        most likely to have the wrong idea about: the public listing survives
+        this, and the contributor keeps the points it earned.
+      */}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(next) => !next && setPendingDelete(null)}
+        title="Delete submission?"
+        description={
+          pendingDelete
+            ? `“${pendingDelete.title}” will be permanently removed from the review records and from ${
+                pendingDelete.contributor?.fullName ||
+                pendingDelete.contributor?.email ||
+                'the contributor'
+              }’s contribution history. The published listing stays on the public site and the 50 RP Points already awarded are not taken back. This cannot be undone.`
+            : ''
+        }
+        confirmLabel="Delete permanently"
+        destructive
+        /*
+         * Not awaited, and the dialog closes first — the same reasoning as the
+         * listings table: awaiting here would hold the modal and its dimmed
+         * overlay over the whole animation.
+         */
+        onConfirm={() => {
+          const submission = pendingDelete
+          setPendingDelete(null)
+          if (submission) void runDelete(submission)
+        }}
+      />
     </>
   )
 }
 
-function QueueRow({ submission: s }: { submission: Submission }) {
+function QueueRow({
+  submission: s,
+  actions = false,
+  busy = false,
+  locked = false,
+  register,
+  registerMenu,
+  onView,
+  onDelete,
+}: {
+  submission: Submission
+  actions?: boolean
+  busy?: boolean
+  locked?: boolean
+  register?: (node: HTMLElement | null) => void
+  registerMenu?: (node: HTMLButtonElement | null) => void
+  onView?: () => void
+  onDelete?: () => void
+}) {
   const place = [s.location, s.address].filter(Boolean)[0] ?? ''
 
+  /*
+   * THE CARD WAS A `<Link>`. IT IS NOW A DIV WITH THE LINK STRETCHED ACROSS IT.
+   *
+   * Every class below is the one that was on the `<Link>` — same border, same
+   * radius, same padding, same shadow, same hover, same gap. The card looks and
+   * measures identically; what changed is where the anchor is.
+   *
+   * It had to change, because a `<button>` inside an `<a>` is invalid HTML and
+   * browsers resolve it by swallowing the button's clicks into the link. The
+   * menu would have navigated instead of opening. So the anchor becomes an
+   * overlay covering the card, the menu sits above it, and the whole card is
+   * still one click target.
+   *
+   * The focus ring moves with it: `:has(a:focus-visible)` puts the ring on the
+   * card when the stretched link is focused, which is what a keyboard user was
+   * seeing before. Written as an arbitrary variant rather than `focus-within`
+   * on purpose — `focus-within` would also ring the card when the ⋮ button is
+   * focused, and that button has a ring of its own.
+   */
   return (
-    <Link
-      to={`/admin/submissions/${s.id}`}
+    <div
+      ref={register}
+      data-flip-key={s.id}
       className={cn(
-        'flex items-center gap-4 rounded-card border border-line bg-surface p-3 shadow-card',
+        'relative flex items-center gap-4 rounded-card border border-line bg-surface p-3 shadow-card',
         'transition-colors hover:border-primary/40 hover:bg-surface-2',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+        '[&:has(a:focus-visible)]:outline-none [&:has(a:focus-visible)]:ring-2 [&:has(a:focus-visible)]:ring-primary',
       )}
     >
+      <Link
+        to={`/admin/submissions/${s.id}`}
+        // The whole card, as one target. `rounded-card` so the focus ring and
+        // any future outline follow the card's corners rather than a rectangle
+        // over them.
+        className="absolute inset-0 z-0 rounded-card focus-visible:outline-none"
+      >
+        <span className="sr-only">Review {s.title}</span>
+      </Link>
       {s.imageUrl ? (
         <img
           src={s.imageUrl}
@@ -205,8 +406,51 @@ function QueueRow({ submission: s }: { submission: Submission }) {
         </p>
       </div>
 
-      <ChevronRight className="size-4 shrink-0 text-ink-subtle" aria-hidden="true" />
-    </Link>
+      {/*
+        The trailing slot: the chevron the card has always had, or the actions
+        menu in its place. One or the other, never both, and both are laid out
+        the same way — `shrink-0` in the same flex row at the same right-hand
+        padding — so swapping them moves nothing else on the card.
+
+        `relative z-10` lifts the menu above the stretched link behind it.
+        Without it the anchor would take the click and navigate.
+      */}
+      {actions ? (
+        <div className="relative z-10 shrink-0">
+          <RowActions label={s.title} disabled={locked} triggerRef={registerMenu}>
+            {(close) => (
+              <>
+                <RowAction
+                  icon={Eye}
+                  onSelect={() => {
+                    close()
+                    onView?.()
+                  }}
+                >
+                  View details
+                </RowAction>
+                <RowAction
+                  icon={Trash2}
+                  destructive
+                  disabled={busy}
+                  onSelect={() => {
+                    // Closed first: the confirmation dialog moves focus, and a
+                    // popover still open underneath it fights for that focus
+                    // and closes on the dialog's first outside-click.
+                    close()
+                    onDelete?.()
+                  }}
+                >
+                  Delete
+                </RowAction>
+              </>
+            )}
+          </RowActions>
+        </div>
+      ) : (
+        <ChevronRight className="size-4 shrink-0 text-ink-subtle" aria-hidden="true" />
+      )}
+    </div>
   )
 }
 

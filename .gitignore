@@ -28,3 +28,6 @@ pnpm-debug.log*
 # Design sources. Cited in code comments as provenance, imported by nothing —
 # kept out of the repo so a public clone is code, not 1.4MB of mockups.
 Reference/
+
+# Supabase CLI scratch (project ref cache, version checks)
+supabase/.temp/

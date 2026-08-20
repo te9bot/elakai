@@ -3,7 +3,7 @@ import { Outlet, ScrollRestoration, useLocation } from 'react-router-dom'
 import { TopNav } from './top-nav'
 import { BottomNav } from './bottom-nav'
 import { Footer } from './footer'
-import { KushtiaMap } from '@/components/home/kushtia-map'
+import { MapBackdrop } from './map-backdrop'
 import { LogoIntro } from '@/components/brand/logo-intro'
 import { useI18n } from '@/lib/i18n'
 
@@ -53,10 +53,11 @@ export function AppShell() {
           wallpapers. Its layers still respond to scroll — see the parallax in
           kushtia-map.tsx — so it reads as depth rather than as a static image.
 
-          `-z-10` puts it behind every content block. Cards and panels keep
-          their own opaque surfaces and sit on top; the map shows through the
-          gaps between them, which is the composition being aimed at. */}
-      <KushtiaMap className="fixed inset-0 -z-10 h-dvh w-full" />
+          The positioning that used to be written out here now lives in
+          `MapBackdrop`, so the admin panel mounts the identical layer rather
+          than a copy of this class string that could drift from it. Nothing
+          about what renders has changed. */}
+      <MapBackdrop />
 
       <a
         href="#main"
