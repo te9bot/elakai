@@ -1,10 +1,11 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertTriangle,
   ArrowDownAZ,
   ArrowUpAZ,
+  BadgeCheck,
   Eye,
   ExternalLink,
   EyeOff,
@@ -34,8 +35,10 @@ import {
 } from '@/lib/listings'
 import {
   adminListListings,
+  canVerifyListings,
   deleteListing,
   errorMessage,
+  setListingFlag,
   setListingStatus,
   type ListingSort,
 } from '@/lib/listings-admin'
@@ -158,6 +161,34 @@ export default function AdminListingsPage() {
     void queryClient.invalidateQueries({ queryKey: ['admin', 'listing-stats'] })
     void queryClient.invalidateQueries({ queryKey: ['listings'] })
   }
+
+  /**
+   * Whether `listings.verified` exists on this project (migration 0014).
+   *
+   * The row's verify control is hidden without it rather than shown and inert
+   * — the write would be dropped by `stripMissingColumns` and the admin would
+   * be told a decision had been recorded that was not.
+   */
+  const [canVerify, setCanVerify] = useState(false)
+  useEffect(() => {
+    let live = true
+    void canVerifyListings().then((yes) => {
+      if (live) setCanVerify(yes)
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+
+  const toggleVerified = useMutation({
+    mutationFn: ({ id, next }: { id: number; next: boolean }) =>
+      setListingFlag(id, 'verified', next),
+    onSuccess: (_data, { next }) => {
+      toast(next ? 'Listing marked verified.' : 'Verification removed.')
+      refresh()
+    },
+    onError: (error) => toast(errorMessage(error, 'Could not change verification.'), 'error'),
+  })
 
   const toggleStatus = useMutation({
     mutationFn: ({ id, next }: { id: number; next: ListingStatus }) => setListingStatus(id, next),
@@ -442,7 +473,16 @@ export default function AdminListingsPage() {
                         listing={listing}
                         busy={
                           (toggleStatus.isPending && toggleStatus.variables?.id === listing.id) ||
+                          (toggleVerified.isPending &&
+                            toggleVerified.variables?.id === listing.id) ||
                           deletingId === listing.id
+                        }
+                        canVerify={canVerify}
+                        onVerify={() =>
+                          toggleVerified.mutate({
+                            id: listing.id,
+                            next: !(listing.verified ?? false),
+                          })
                         }
                         /*
                          * §17 in the interface: while one row is being thrown,
@@ -535,22 +575,28 @@ function Row({
   listing,
   busy,
   deleteLocked,
+  canVerify,
   register,
   registerTrash,
   onToggle,
+  onVerify,
   onDelete,
 }: {
   listing: Listing
   busy: boolean
   deleteLocked: boolean
+  /** False until migration 0014 is applied, which hides the verify control. */
+  canVerify: boolean
   /** Hands the row element up so it can be measured and cloned. */
   register: (node: HTMLTableRowElement | null) => void
   /** Hands up the trash button — the thing the row is thrown at. */
   registerTrash: (node: HTMLButtonElement | null) => void
   onToggle: () => void
+  onVerify: () => void
   onDelete: () => void
 }) {
   const active = listing.status === 'active'
+  const verified = listing.verified ?? false
 
   return (
     <tr
@@ -582,8 +628,14 @@ function Row({
             )}
           </span>
           <div className="min-w-0">
-            <p className="truncate text-body-sm font-bold text-ink">
-              {listing.title || 'Untitled listing'}
+            <p className="flex items-center gap-1.5 text-body-sm font-bold text-ink">
+              <span className="truncate">{listing.title || 'Untitled listing'}</span>
+              {verified && (
+                <BadgeCheck
+                  className="size-4 shrink-0 text-primary"
+                  aria-label="Verified"
+                />
+              )}
             </p>
             <p className="truncate text-meta text-ink-subtle">
               {listing.location || listing.address || '—'}
@@ -652,6 +704,23 @@ function Row({
               <a href={`/elakai/listing/${listing.id}`} target="_blank" rel="noopener noreferrer">
                 <ExternalLink aria-hidden="true" />
               </a>
+            </Button>
+          )}
+          {canVerify && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onVerify}
+              disabled={busy}
+              aria-label={
+                verified
+                  ? `Remove verification from ${listing.title || 'listing'}`
+                  : `Mark ${listing.title || 'listing'} verified`
+              }
+              title={verified ? 'Remove verification' : 'Mark verified'}
+              className={cn(verified && 'text-primary')}
+            >
+              <BadgeCheck aria-hidden="true" />
             </Button>
           )}
           <Button

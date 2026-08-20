@@ -1,5 +1,16 @@
-import { Bath, BedDouble, CalendarDays, Layers, MapPin, Maximize, Sofa } from 'lucide-react'
+import {
+  ArrowRight,
+  Bath,
+  BedDouble,
+  CalendarDays,
+  Layers,
+  MapPin,
+  Maximize,
+  Sofa,
+} from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   Sheet,
   SheetBody,
@@ -111,12 +122,15 @@ export function RentalDetailSheet({
             </div>
           </div>
 
-          <p className="mt-4 flex items-baseline gap-1.5">
-            <span className="tnum text-display text-primary">{n(formatBDT(rental.rent))}</span>
-            <span className="text-body-sm font-semibold text-ink-subtle">
-              {t('rentals.perMonth')}
-            </span>
-          </p>
+          {/* Zero is "no number in the price column", not a free flat. */}
+          {rental.rent > 0 && (
+            <p className="mt-4 flex items-baseline gap-1.5">
+              <span className="tnum text-display text-primary">{n(formatBDT(rental.rent))}</span>
+              <span className="text-body-sm font-semibold text-ink-subtle">
+                {t('rentals.perMonth')}
+              </span>
+            </p>
+          )}
 
           <p className="mt-2 flex items-start gap-1.5 text-body-sm text-ink-muted">
             <MapPin className="mt-0.5 size-4 shrink-0 text-ink-subtle" aria-hidden="true" />
@@ -142,11 +156,13 @@ export function RentalDetailSheet({
                 value={<span className="tnum">{n(rental.bathrooms)}</span>}
               />
             )}
-            <SpecRow
-              icon={<Maximize className="size-4" aria-hidden="true" />}
-              label={t('rentals.sqft')}
-              value={<span className="tnum">{n(rental.sizeSqft)}</span>}
-            />
+            {rental.sizeSqft > 0 && (
+              <SpecRow
+                icon={<Maximize className="size-4" aria-hidden="true" />}
+                label={t('rentals.sqft')}
+                value={<span className="tnum">{n(rental.sizeSqft)}</span>}
+              />
+            )}
             <SpecRow
               icon={<Sofa className="size-4" aria-hidden="true" />}
               label={t('rentals.tenant')}
@@ -159,11 +175,13 @@ export function RentalDetailSheet({
                 value={<span className="tnum">{n(rental.floor)}</span>}
               />
             )}
-            <SpecRow
-              icon={<CalendarDays className="size-4" aria-hidden="true" />}
-              label={t('rentals.availableFrom')}
-              value={<span className="tnum">{n(rental.availableFrom)}</span>}
-            />
+            {rental.availableFrom && (
+              <SpecRow
+                icon={<CalendarDays className="size-4" aria-hidden="true" />}
+                label={t('rentals.availableFrom')}
+                value={<span className="tnum">{n(rental.availableFrom)}</span>}
+              />
+            )}
           </dl>
 
           <div className="mt-4 flex flex-wrap items-center gap-2 text-meta text-ink-subtle">
@@ -172,6 +190,19 @@ export function RentalDetailSheet({
             <span aria-hidden="true">·</span>
             {rental.furnished ? t('rentals.furnishedYes') : t('rentals.furnishedNo')}
           </div>
+
+          {/* The row's own page, when this rental came from one. A drawer is
+              a summary you dismiss; the listing page is an address that can be
+              sent to somebody. Bundled records have no row and no page, so the
+              link is only offered where it resolves. */}
+          {/^\d+$/.test(rental.id) && (
+            <Button asChild variant="secondary" size="lg" block className="mt-4">
+              <Link to={`/listing/${rental.id}`}>
+                {t('card.details')}
+                <ArrowRight aria-hidden="true" />
+              </Link>
+            </Button>
+          )}
 
           <DirectionsButton
             coords={rental.coords}

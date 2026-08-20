@@ -161,10 +161,11 @@ export function useCoverage() {
  * brought back to the foreground. That is what makes "publish in the admin
  * panel, reload the site, see it" hold without a deploy.
  */
-export function useListings(section?: string) {
+export function useListings(section?: string, enabled = true) {
   return useQuery({
     queryKey: keys.listings(section),
     queryFn: () => api.listActiveListings(section),
+    enabled,
     staleTime: 30 * 1000,
     refetchOnWindowFocus: true,
   })

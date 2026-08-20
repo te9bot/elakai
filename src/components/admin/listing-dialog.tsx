@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Loader2, Save } from 'lucide-react'
 
 import { ConfirmDialog } from '@/components/admin/confirm'
-import { Field, Select, ServiceListField, TextArea } from '@/components/forms/fields'
+import { Field, Select, ServiceListField, TextArea, ToggleField } from '@/components/forms/fields'
 import { ImageUpload, type ImageSelection } from '@/components/admin/image-upload'
 import { AdminModal, ModalSection, ModalSections } from '@/components/admin/modal'
 import { useToast } from '@/components/admin/toast'
@@ -16,6 +16,7 @@ import {
   type ListingStatus,
 } from '@/lib/listings'
 import {
+  canVerifyListings,
   createListing,
   errorMessage,
   removeListingImage,
@@ -52,6 +53,8 @@ type Draft = {
   availability: string
   services: string[]
   maps_url: string
+  verified: boolean
+  featured: boolean
   status: ListingStatus
   display_order: string
 }
@@ -69,6 +72,8 @@ const EMPTY: Draft = {
   availability: '',
   services: [],
   maps_url: '',
+  verified: false,
+  featured: false,
   status: 'active',
   display_order: '0',
 }
@@ -87,6 +92,10 @@ function draftFrom(listing: Listing): Draft {
     availability: listing.availability,
     services: listing.services,
     maps_url: listing.mapsUrl,
+    // Null means the column is absent or the row predates it; the switch has
+    // to show something, and "not verified" is the honest default.
+    verified: listing.verified ?? false,
+    featured: listing.featured ?? false,
     status: listing.status,
     display_order: String(listing.displayOrder),
   }
@@ -156,6 +165,25 @@ export function ListingDialog({
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
+
+  /**
+   * Whether this project has `listings.verified` yet (migration 0014).
+   *
+   * The two switches are hidden rather than shown-and-inert when it does not:
+   * the write path drops the columns it cannot write, so a visible switch would
+   * save nothing and say it had. Asked once per session and cached in
+   * lib/listing-columns.ts, so this costs one request for the whole panel.
+   */
+  const [canVerify, setCanVerify] = useState(false)
+  useEffect(() => {
+    let live = true
+    void canVerifyListings().then((yes) => {
+      if (live) setCanVerify(yes)
+    })
+    return () => {
+      live = false
+    }
+  }, [])
 
   /**
    * The values the form opened with, kept so "has anything changed?" can be
@@ -263,6 +291,8 @@ export function ListingDialog({
         image_url: imageUrl,
         services: draft.services,
         maps_url: draft.maps_url,
+        verified: draft.verified,
+        featured: draft.featured,
         status: draft.status,
         display_order: Number(draft.display_order.trim() || '0'),
       }
@@ -532,6 +562,25 @@ export function ListingDialog({
 
           {/* ---- Publishing ---- */}
           <ModalSection title="Publishing">
+            {canVerify && (
+              <>
+                <ToggleField
+                  label="Verified"
+                  hint="Checked against an official source or a phone call. Adds the verification mark on the public card."
+                  checked={draft.verified}
+                  disabled={busy}
+                  onChange={(next) => set('verified', next)}
+                />
+                <ToggleField
+                  label="Featured"
+                  hint="Promotes this listing to the Popular rail on the homepage."
+                  checked={draft.featured}
+                  disabled={busy}
+                  onChange={(next) => set('featured', next)}
+                />
+              </>
+            )}
+
             <Field label="Status" hint="Inactive listings stay hidden from the public site.">
               {({ id, describedBy }) => (
                 <Select

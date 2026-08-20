@@ -27,22 +27,46 @@ export function ListingsSection({
   section,
   title,
   description,
+  keepAfterCutover = false,
   /** How many skeletons to show while loading. */
   placeholders = 3,
 }: {
   /** Omit to show every active listing, whatever its section. */
   section?: string
   title: string
+  /**
+   * Optional, and deliberately never defaulted to an attribution.
+   *
+   * These headings used to read "Added by the ELAKAI team." on every page,
+   * which was a claim about provenance made by a string literal: the rows
+   * underneath it may have been imported, typed by an administrator, or
+   * accepted from a contributor, and nothing in the schema records which. A
+   * label that is wrong for some of them is worse than no label, so pages pass
+   * a description only when they have something true to say.
+   */
   description?: string
+  /**
+   * Keep rendering after the site has cut over to database-driven sections.
+   *
+   * For the one page whose own components cannot show these rows: /healthcare
+   * renders `HealthRecord`s — doctors, chambers, departments — which the flat
+   * schema cannot express, so a listing created in the admin panel would appear
+   * nowhere on it. Everywhere else the page's native cards already render these
+   * same rows, and showing them again here is how one record becomes two cards.
+   */
+  keepAfterCutover?: boolean
   placeholders?: number
 }) {
-  const listings = useListings(section)
   const fromDatabase = useDatabaseDrivenDirectory()
+  // Not fetched at all where the block will not render: the page's own
+  // sections have already read these rows through api.ts, and asking for the
+  // table a second time to throw the answer away is a request per page load.
+  const listings = useListings(section, fromDatabase.data !== true || keepAfterCutover)
 
   // Once the page's own sections are built from `public.listings`, these rows
   // are already on screen in the site's native cards — with their maps, hours
   // and badges — so repeating them here would show every record twice.
-  if (fromDatabase.data === true) return null
+  if (fromDatabase.data === true && !keepAfterCutover) return null
 
   /*
    * Before that cutover the page renders the bundled dataset, and the database

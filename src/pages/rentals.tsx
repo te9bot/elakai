@@ -329,11 +329,7 @@ export default function RentalsPage() {
 
           {/* Published from the admin panel. Renders nothing until it has rows,
               so this page is unchanged until somebody adds one. */}
-          <ListingsSection
-            section="rentals"
-            title="Listed rentals"
-            description="Added by the ELAKAI team."
-          />
+          <ListingsSection section="rentals" title="Listed rentals" />
         </div>
       </Section>
 

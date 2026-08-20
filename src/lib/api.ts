@@ -3,7 +3,7 @@ import { cleanCoverage, FALLBACK_COVERAGE, type CoverageBands } from '@/data/cov
 import { EMERGENCY_CONTACTS } from '@/data/emergency'
 import { HEALTH_RECORDS } from '@/data/healthcare'
 import type { HealthRecord } from '@/data/healthcare-types'
-import { RENTAL_BY_SLUG, RENTALS } from '@/data/rentals'
+import { RENTAL_BY_SLUG, RENTALS, RENT_RANGE } from '@/data/rentals'
 import type {
   Business,
   CategoryId,
@@ -17,6 +17,7 @@ import { FAKE_LATENCY_MS } from './config'
 import { haversineKm } from './format'
 import { setHealthCorpus } from './healthcare-search'
 import { listingSelect } from './listing-columns'
+import { flatToBusiness, flatToEmergency, flatToRental } from './listings-flat'
 import { toListing, type Listing, type ListingRow } from './listings'
 import { listingKey } from './listings-import'
 import {
@@ -138,8 +139,13 @@ let richSchemaPromise: Promise<boolean> | null = null
  * around it is already showing those same rows through its own components. Both
  * reading from the same table is the point; both rendering it twice is not.
  */
-export function directoryIsDatabaseDriven(): Promise<boolean> {
-  return hasRichSchema()
+export async function directoryIsDatabaseDriven(): Promise<boolean> {
+  if (await hasRichSchema()) return true
+  // The flat cutover counts too. Every section below now renders whatever
+  // `public.listings` holds, mapped through listings-flat.ts, so a page that
+  // also rendered the admin-managed block underneath would show each of those
+  // rows twice.
+  return (await flatListings()).length > 0
 }
 
 function hasRichSchema(): Promise<boolean> {
@@ -155,101 +161,109 @@ function hasRichSchema(): Promise<boolean> {
 }
 
 /* ------------------------------------------------------------------ */
-/* Database overlay                                                    */
+/* The published rows                                                  */
 /* ------------------------------------------------------------------ */
 
 /**
- * What `public.listings` holds for each bundled record — the fields an admin
- * edits that the bundled dataset cannot carry.
+ * WHERE THE DIRECTORY COMES FROM
  *
- * WHY THIS EXISTS
+ * There are three answers, tried in this order, and every loader below follows
+ * the same sequence:
  *
- * Until migration 0004 lands, the loaders below cannot build a `Business` or an
- * `EmergencyContact` out of the flat sixteen columns — there is no slug, no
- * coordinates, no bilingual copy — so they serve the bundled dataset instead.
- * That is a reasonable fallback for presentation, and a bad one for the fields
- * an admin actually goes into the panel to change: they write to the database,
- * and the site keeps rendering the bundled value.
+ *   1. migration 0004 applied   the wide select, mapped by listings-rich.ts.
+ *                               Coordinates, weekly hours, numeric rent,
+ *                               bilingual columns: the full record.
  *
- * `phone` was the first such field. Measured on the emergency page: fourteen
- * services, ten of them with real numbers saved, and one Call button on the
- * whole page, because `CallButton` correctly refuses to dial the bundled
- * placeholders.
+ *   2. rows but no 0004         the sixteen base columns, mapped by
+ *                               listings-flat.ts. Less detail, same rows —
+ *                               and, crucially, the same *set* of rows, so
+ *                               publishing, editing, hiding and deleting all
+ *                               reach the public site.
  *
- * `image_url` is the second, and it fails harder. A bundled record has no
- * photograph at all — only `imageSeed`, which selects a generated gradient — so
- * an uploaded image had nowhere to land. It was written to the bucket, stored
- * on the row, shown in the admin editor, and then dropped on the floor by every
- * public page, which went on drawing the gradient. Overlaying it here is what
- * makes an upload visible on the site it was uploaded for.
+ *   3. no rows at all           the bundled demo dataset in src/data/, with
+ *                               the phone number and photograph the database
+ *                               does hold applied over it.
  *
- * Matched on the same composite identity the importer dedupes on, so a record
- * is paired here exactly as it is there. Renaming a listing in the panel breaks
- * the pairing — that is inherent to identifying by title, and it stops
- * mattering once 0004 gives every row a slug.
+ * Step 2 used to not exist, and its absence was the bug this section was
+ * rewritten to fix. A project with 147 published rows and no 0004 fell all the
+ * way to step 3: the site rendered arrays compiled into the bundle, and an
+ * administrator could rename a listing, replace its photograph or delete it
+ * outright and watch the public page carry on showing the old one. Worse, a
+ * renamed row stopped matching its bundled twin and appeared *again* in the
+ * admin-managed block below it, so one edit produced two cards.
  *
- * Cached as the promise so the loaders share one request.
+ * Step 3 keeps the overlay it always had, because a bundled record cannot
+ * carry a phone number an admin typed or an image they uploaded. It only runs
+ * on an empty table now, which is what it was always for.
  */
-type ListingOverlay = { phone?: string; imageUrl?: string }
+type ListingOverlay = Map<string, Listing>
 
-let overlayPromise: Promise<Map<string, ListingOverlay>> | null = null
+/**
+ * Every active row of `public.listings`, fetched once and shared.
+ *
+ * One request serves the whole site: the business corpus, the emergency page,
+ * the rentals page and the healthcare overlay all read this array. At the size
+ * a district directory reaches that is cheaper than four filtered queries, and
+ * — more to the point — it means every page is looking at the same snapshot,
+ * so a listing cannot be present on one screen and missing from the next.
+ *
+ * Cached as the promise rather than the result, so components mounting together
+ * share a single request instead of racing to issue one each. Cleared by
+ * `invalidateCorpus` after an admin write.
+ */
+let flatPromise: Promise<Listing[]> | null = null
 
-function listingOverlay(): Promise<Map<string, ListingOverlay>> {
-  const db = supabase
-  if (!HAS_BACKEND || !db) return Promise.resolve(new Map())
+function flatListings(): Promise<Listing[]> {
+  if (!HAS_BACKEND || !supabase) return Promise.resolve([])
 
-  overlayPromise ??= (async () => {
-    const { data, error } = await db
-      .from('listings')
-      .select('section, title, phone, image_url')
-      .eq('status', 'active')
-
-    // A failure here must not take a page down: the bundled record is still
-    // shown, it simply keeps its bundled number and its generated artwork.
-    if (error) {
-      console.error('[elakai] listing overlay could not be read:', error.message)
-      return new Map<string, ListingOverlay>()
-    }
-
-    const rows = (data ?? []) as {
-      section: string | null
-      title: string | null
-      phone: string | null
-      image_url: string | null
-    }[]
-
-    const map = new Map<string, ListingOverlay>()
-    for (const row of rows) {
-      const phone = row.phone?.trim()
-      const imageUrl = row.image_url?.trim()
-      if (!phone && !imageUrl) continue
-      map.set(listingKey(row.section, row.title), {
-        phone: phone || undefined,
-        imageUrl: imageUrl || undefined,
-      })
-    }
-    return map
-  })().catch((error) => {
-    console.error('[elakai] listing overlay could not be read:', error)
-    overlayPromise = null
-    return new Map<string, ListingOverlay>()
+  flatPromise ??= listActiveListings().catch((error) => {
+    // A failed load must not poison the cache — the next attempt should retry
+    // rather than replay the rejection forever.
+    flatPromise = null
+    throw error
   })
 
-  return overlayPromise
+  return flatPromise
+}
+
+/** The active rows for one section, in `display_order`. */
+async function flatSection(section: string): Promise<Listing[]> {
+  return (await flatListings()).filter((l) => l.section === section)
 }
 
 /**
- * Applies the database's phone and image to a bundled record.
+ * The database's rows indexed by the identity the importer dedupes on.
  *
- * Returns the record untouched when there is nothing to apply, so the identity
- * check that React's memoised lists rely on still holds for the majority of
- * records that have no overlay at all.
+ * WHAT THIS IS FOR
+ *
+ * Two callers, and they use it for opposite halves of the same problem. The
+ * healthcare corpus is still assembled from the bundled records — a doctor's
+ * chambers, a facility's departments and the links between the two have no
+ * columns in the flat schema, and inventing them here would be worse than
+ * keeping them — so for that page the database says which records exist and
+ * what their editable fields hold, and the bundled record supplies the rest.
+ *
+ * The remaining bundled paths (which only run when the table is empty) use it
+ * for the two fields an admin can change that the bundled data cannot carry at
+ * all: the phone number and an uploaded photograph.
+ *
+ * Matched on section + title, normalised — the same composite the importer
+ * writes and `listing-identity.ts` compares on, so a record is paired here
+ * exactly as it is there.
  */
+async function listingOverlay(): Promise<ListingOverlay> {
+  const map: ListingOverlay = new Map()
+  for (const listing of await flatListings()) {
+    map.set(listingKey(listing.section, listing.title), listing)
+  }
+  return map
+}
+
 function withDatabaseFields<T extends { phone: string; imageUrl?: string | null }>(
   record: T,
   section: string,
   title: string,
-  overlay: Map<string, ListingOverlay>,
+  overlay: ListingOverlay,
 ): T {
   const found = overlay.get(listingKey(section, title))
   if (!found) return record
@@ -334,7 +348,17 @@ async function loadCorpus(): Promise<Business[]> {
     })
     if (hasRows(rows)) return (rows as RichListingRow[]).map(listingToBusiness)
 
-    // A business's section is its category group, which is what the importer
+    // No 0004, but there are rows: the directory is those rows, read through
+    // the flat mapper. This is what makes an edit, a deletion or an uploaded
+    // photograph in the admin panel show up on the public site of a project
+    // that has only the sixteen base columns. See lib/listings-flat.ts.
+    const all = await flatListings()
+    const flat = all.filter((l) => DIRECTORY_SECTIONS.includes(l.section))
+    if (flat.length) return flat.map(flatToBusiness)
+
+    // Nothing published at all, which is a fresh project: the bundled dataset
+    // is the demo content, with whatever the database does hold applied over
+    // it. A business's section is its category group, which is what the importer
     // wrote and therefore what the overlay is keyed on.
     const overlay = await listingOverlay()
     return BUSINESSES.map((b) => withDatabaseFields(b, b.group, b.name.en, overlay))
@@ -363,7 +387,23 @@ async function loadCorpus(): Promise<Business[]> {
  */
 export function invalidateCorpus(): void {
   corpusPromise = null
-  overlayPromise = null
+  flatPromise = null
+  sectionPopulated.clear()
+}
+
+/**
+ * Everything the public read path holds in memory for this tab.
+ *
+ * Called by every admin write — see lib/listings-admin.ts. Without it the
+ * caches above are per-session, so an administrator could save a listing,
+ * click through to the public site in the same tab, and be shown the snapshot
+ * taken before their edit. The React Query keys the admin screens invalidate
+ * do not reach these: they are module-level promises, deliberately shared by
+ * every component, and this is the one place that can clear them.
+ */
+export function invalidateDirectory(): void {
+  invalidateCorpus()
+  invalidateHealthcare()
 }
 
 /* ------------------------------------------------------------------ */
@@ -511,6 +551,12 @@ export async function listEmergency(): Promise<EmergencyContact[]> {
 
   if (hasRows(rows)) return (rows as RichListingRow[]).map(listingToEmergency)
 
+  // The flat cutover: the page is the `emergency` rows themselves, in display
+  // order, so hiding or deleting one in the admin panel takes it off the page.
+  // See lib/listings-flat.ts.
+  const flat = await flatSection('emergency')
+  if (flat.length) return flat.map(flatToEmergency)
+
   // Bundled presentation, database numbers and images — see `listingOverlay`.
   // Every emergency contact is stored under the `emergency` section.
   const overlay = await listingOverlay()
@@ -573,7 +619,7 @@ export type ScoredRental = { rental: Rental; distanceKm: number }
  * listings than fit in a phone's memory.
  */
 export async function listRentals(filters: RentalFilters = {}): Promise<ScoredRental[]> {
-  if (!HAS_BACKEND || !supabase) return delay(filterRentalsLocally(filters))
+  if (!HAS_BACKEND || !supabase) return delay(filterRentals(RENTALS, filters))
 
   const {
     categories, maxRent, minRent, bedrooms, bathrooms,
@@ -611,28 +657,45 @@ export async function listRentals(filters: RentalFilters = {}): Promise<ScoredRe
 
   // Null means the rich schema is absent. Empty is ambiguous, so it is only
   // treated as a real "nothing matches" once the section is known to hold rows.
-  if (rows === null) return bundledRentals(filters)
-  if (rows.length === 0 && !(await sectionHasRows('rentals'))) {
-    return bundledRentals(filters)
+  if (rows !== null && (rows.length > 0 || (await sectionHasRows('rentals')))) {
+    return rows.map((r) => {
+      const rental = listingToRental(r)
+      return { rental, distanceKm: origin ? haversineKm(origin, rental.coords) : 0 }
+    })
   }
 
-  return rows.map((r) => {
-    const rental = listingToRental(r)
-    return { rental, distanceKm: origin ? haversineKm(origin, rental.coords) : 0 }
-  })
+  /*
+   * The flat cutover. Every predicate this page offers reads a column 0004
+   * adds, so without it there is nothing to push into Postgres: the section is
+   * fetched once (shared with the rest of the site) and filtered in memory.
+   * A district's rentals are tens of rows, not thousands.
+   *
+   * What matters is that the rows are the database's. A rental published,
+   * repriced, hidden or deleted in the admin panel changes this page on the
+   * next load, which it did not when the page was reading a bundled array.
+   */
+  const flat = await flatSection('rentals')
+  if (flat.length) return filterRentals(flat.map(flatToRental), filters)
+
+  return bundledRentals(filters)
 }
 
 /** Bundled rentals with database numbers and images applied. */
 async function bundledRentals(filters: RentalFilters): Promise<ScoredRental[]> {
   const overlay = await listingOverlay()
-  return filterRentalsLocally(filters).map((scored) => ({
+  return filterRentals(RENTALS, filters).map((scored) => ({
     ...scored,
     rental: withDatabaseFields(scored.rental, 'rentals', scored.rental.title.en, overlay),
   }))
 }
 
-/** The same filters applied in memory, for the no-backend fallback. */
-function filterRentalsLocally(filters: RentalFilters): ScoredRental[] {
+/**
+ * The rentals filters, applied in memory.
+ *
+ * Used by the flat-schema path above and by the bundled fallback, so the two
+ * cannot drift into filtering differently.
+ */
+function filterRentals(rentals: Rental[], filters: RentalFilters): ScoredRental[] {
   const {
     categories, maxRent, minRent, bedrooms, bathrooms,
     tenantType, furnishedOnly, area, origin, sort = 'recommended',
@@ -640,9 +703,14 @@ function filterRentalsLocally(filters: RentalFilters): ScoredRental[] {
 
   const allowed = categories?.length ? new Set(categories) : null
 
-  const out = RENTALS.filter((r) => {
+  // The budget slider tops out at RENT_RANGE.max and is labelled with a "+",
+  // so its maximum means "no ceiling". Treating it as a literal one would hide
+  // every listing an admin priced above the slider's range.
+  const ceiling = maxRent !== undefined && maxRent < RENT_RANGE.max ? maxRent : undefined
+
+  const out = rentals.filter((r) => {
     if (allowed && !allowed.has(r.category)) return false
-    if (maxRent !== undefined && r.rent > maxRent) return false
+    if (ceiling !== undefined && r.rent > ceiling) return false
     if (minRent !== undefined && r.rent < minRent) return false
     if (bedrooms != null && bedrooms > 0 && r.bedrooms < bedrooms) return false
     if (bathrooms != null && bathrooms > 0 && r.bathrooms < bathrooms) return false
@@ -696,26 +764,7 @@ export async function loadHealthcare(): Promise<HealthRecord[]> {
     const rows = await richListings(['healthcare'], {
       order: [{ column: 'display_order' }, { column: 'id' }],
     })
-    if (!hasRows(rows)) {
-      // Healthcare contacts nest the number inside `contact`, so the shared
-      // helper does not fit; the identity and the intent are the same.
-      const overlay = await listingOverlay()
-      return HEALTH_RECORDS.map((r) => {
-        const found = overlay.get(listingKey('healthcare', r.name.en))
-        if (!found) return r
-
-        const phone = found.phone && found.phone !== r.contact?.phone ? found.phone : undefined
-        const imageUrl =
-          found.imageUrl && found.imageUrl !== r.imageUrl ? found.imageUrl : undefined
-        if (!phone && !imageUrl) return r
-
-        return {
-          ...r,
-          ...(phone ? { contact: { ...(r.contact ?? {}), phone } } : {}),
-          ...(imageUrl ? { imageUrl } : {}),
-        }
-      })
-    }
+    if (!hasRows(rows)) return flatHealthcare()
 
     const records = (rows as RichListingRow[]).map(listingToHealthRecord)
 
@@ -753,9 +802,71 @@ export async function loadHealthcare(): Promise<HealthRecord[]> {
   return healthPromise
 }
 
+/**
+ * The healthcare corpus on a project without migration 0004.
+ *
+ * The one place the bundled records still lead, and deliberately: a doctor's
+ * chambers, a facility's departments, its test list and the links between
+ * doctors and the facilities they sit in have no columns in the flat schema.
+ * Mapping /healthcare out of sixteen text columns would mean discarding all of
+ * that, which is a worse page than the one this produces.
+ *
+ * What the database decides here is everything it legitimately can:
+ *
+ *   existence   a record with no active row is not rendered, so hiding or
+ *               deleting a listing in the admin panel takes it off this page
+ *               as well as off every other one;
+ *   fields      title, description (a doctor's specialty, which is what the
+ *               importer wrote there), phone, email, address and image come
+ *               from the row whenever the row has them.
+ *
+ * Until the section has been imported at all, the bundled corpus is served
+ * whole -- an empty table is a project that has not started, not a directory
+ * with nothing in it.
+ */
+async function flatHealthcare(): Promise<HealthRecord[]> {
+  const overlay = await listingOverlay()
+  const populated = await sectionHasRows('healthcare')
+  if (!populated) return HEALTH_RECORDS
+
+  const out: HealthRecord[] = []
+  for (const record of HEALTH_RECORDS) {
+    const row = overlay.get(listingKey('healthcare', record.name.en))
+    // Deleted, or set inactive: the overlay only carries active rows.
+    if (!row) continue
+
+    const contact = { ...(record.contact ?? {}) }
+    if (row.phone) contact.phone = row.phone
+    if (row.email) contact.email = row.email
+
+    const next = { ...record, contact } as HealthRecord
+    if (row.title.trim() && row.title.trim() !== record.name.en) {
+      next.name = { bn: row.title.trim(), en: row.title.trim() }
+    }
+    if (row.imageUrl) next.imageUrl = row.imageUrl
+
+    const text = row.description.trim()
+    if (text) {
+      if (next.kind === 'doctor') {
+        if (text !== next.specialty.en) next.specialty = { bn: text, en: text }
+      } else if (text !== next.description?.en) {
+        next.description = { bn: text, en: text }
+      }
+    }
+
+    if (next.kind !== 'doctor' && row.address.trim() && row.address.trim() !== next.address?.en) {
+      next.address = { bn: row.address.trim(), en: row.address.trim() }
+    }
+
+    out.push(next)
+  }
+
+  return out
+}
+
 export function invalidateHealthcare(): void {
   healthPromise = null
-  overlayPromise = null
+  flatPromise = null
 }
 
 export async function getRentalBySlug(slug: string): Promise<Rental | null> {
@@ -763,6 +874,12 @@ export async function getRentalBySlug(slug: string): Promise<Rental | null> {
 
   const rows = await richListings(['rentals'], { eq: { slug } })
   if (hasRows(rows)) return listingToRental((rows as RichListingRow[])[0])
+
+  // The flat schema has no slug column, so the slug is derived on the way out
+  // and matched here the same way. See `slugOf` in lib/listings-flat.ts.
+  const flat = await flatSection('rentals')
+  const found = flat.map(flatToRental).find((r) => r.slug === slug)
+  if (found) return found
 
   // No rich schema, or nothing published under that slug — the bundled record
   // is the only remaining place it could be.

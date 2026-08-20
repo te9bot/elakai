@@ -298,11 +298,10 @@ export default function HealthcarePage() {
                 rows, so this page is unchanged until somebody adds one. Kept on
                 the landing branch only: the search branch above is showing
                 results for a query these rows are not indexed against. */}
-            <ListingsSection
-              section="healthcare"
-              title="Listed healthcare"
-              description="Added by the ELAKAI team."
-            />
+            {/* Kept after the cutover: this page renders HealthRecords, which
+                the flat schema cannot express, so a healthcare listing created
+                in the admin panel has nowhere else here to appear. */}
+            <ListingsSection section="healthcare" title="Listed healthcare" keepAfterCutover />
           </div>
         )}
       </Section>

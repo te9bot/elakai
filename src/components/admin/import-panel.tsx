@@ -6,6 +6,7 @@ import { ConfirmDialog } from '@/components/admin/confirm'
 import { useToast } from '@/components/admin/toast'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { invalidateDirectory } from '@/lib/api'
 import { sectionLabel } from '@/lib/listings'
 import { errorMessage } from '@/lib/listings-admin'
 import {
@@ -62,6 +63,8 @@ export function ImportPanel({ totalListings }: { totalListings: number | undefin
     try {
       const result = await backfillRichColumns((done, total) => setProgress({ done, total }))
       setBackfillReport(result)
+      // The public read path caches the directory per tab. See api.ts.
+      invalidateDirectory()
       if (result.failed.length) {
         toast(`Filled ${result.updated}, ${result.failed.length} failed.`, 'error')
       } else {
@@ -88,6 +91,7 @@ export function ImportPanel({ totalListings }: { totalListings: number | undefin
     try {
       const result = await importBundledListings((done, total) => setProgress({ done, total }))
       setReport(result)
+      invalidateDirectory()
 
       if (result.failed.length) {
         toast(`Imported ${result.imported}, ${result.failed.length} failed.`, 'error')

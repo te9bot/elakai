@@ -76,11 +76,7 @@ export default function EmergencyPage() {
           {/* Published from the admin panel. Renders nothing until it has rows,
               so this page is unchanged until somebody adds one. */}
           <section className="container">
-            <ListingsSection
-              section="emergency"
-              title="Other emergency contacts"
-              description="Added by the ELAKAI team."
-            />
+            <ListingsSection section="emergency" title="Other emergency contacts" />
           </section>
         </>
       )}

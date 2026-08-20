@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 
 import { CallButton } from '@/components/call-button'
 import { ListingPhoto } from '@/components/listing-photo'
+import { VerifiedBadge } from '@/components/status'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { CATEGORY_MAP } from '@/data/categories'
@@ -62,6 +63,15 @@ export function ListingCard({ listing, className }: { listing: Listing; classNam
           {listing.price && (
             <span className="absolute right-3 top-3 rounded-full bg-surface/90 px-3 py-1 text-meta font-bold text-ink shadow-card backdrop-blur">
               {listing.price}
+            </span>
+          )}
+
+          {/* Read from the row, never assumed. Null means the column is absent
+              on this project, and an absent column is not a claim either way —
+              see `Listing.verified`. */}
+          {listing.verified === true && (
+            <span className="absolute left-3 top-3">
+              <VerifiedBadge />
             </span>
           )}
         </div>

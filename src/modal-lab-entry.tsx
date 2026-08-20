@@ -39,6 +39,8 @@ const SAMPLE: Listing = {
   address: '12 N.S. Road, Kushtia',
   location: 'Kushtia Sadar',
   category: 'electrician',
+  verified: true,
+  featured: false,
   price: '450 BDT/visit',
   availability: 'Sat-Thu, 9am-8pm',
   // A real stored URL, so the lab exercises the "existing image" state of the

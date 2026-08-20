@@ -1,3 +1,4 @@
+import { invalidateDirectory } from './api'
 import { downscaleImage } from './image-resize'
 import { requireSupabase } from './supabase'
 import {
@@ -7,7 +8,7 @@ import {
   type ListingRow,
   type ListingStatus,
 } from './listings'
-import { listingSelect, stripMissingColumns } from './listing-columns'
+import { hasListingColumn, listingSelect, stripMissingColumns } from './listing-columns'
 import { toStoredPhone } from './phone'
 
 /* ==========================================================================
@@ -492,6 +493,12 @@ export type ListingInput = {
   /** Migration 0007. Dropped before the write when the column is absent. */
   services: string[]
   maps_url: string
+  /**
+   * Migration 0014. Dropped before the write when the column is absent, so an
+   * unmigrated project saves every other field rather than failing the row.
+   */
+  verified: boolean
+  featured: boolean
   status: ListingStatus
   display_order: number
 }
@@ -523,6 +530,10 @@ function toRow(input: ListingInput) {
     // null rather than [] for an empty list — see `fromServiceList`.
     services: fromServiceList(input.services),
     maps_url: nullable(input.maps_url),
+    // Written as real booleans rather than left null: once an admin has seen
+    // the switch, its position is a statement about the record.
+    verified: input.verified,
+    featured: input.featured,
     status: input.status,
     display_order: Number.isFinite(input.display_order) ? input.display_order : 0,
   }
@@ -541,6 +552,7 @@ export async function createListing(input: ListingInput): Promise<Listing> {
     .single()
 
   if (error) throw new Error(friendly(error.message))
+  invalidateDirectory()
   return toListing(data as unknown as ListingRow)
 }
 
@@ -562,7 +574,42 @@ export async function updateListing(id: number, input: ListingInput): Promise<Li
     .single()
 
   if (error) throw new Error(friendly(error.message))
+  // The public pages cache the directory per tab, so a save that did not clear
+  // it looks exactly like a save that did not happen. See invalidateDirectory.
+  invalidateDirectory()
   return toListing(data as unknown as ListingRow)
+}
+
+/**
+ * Whether this project can record a verification decision at all.
+ *
+ * The switch and the row action are hidden rather than shown-and-broken when
+ * `listings.verified` is absent: an admin toggling a control that silently
+ * does nothing is worse than a control that is not there yet.
+ */
+export function canVerifyListings(): Promise<boolean> {
+  return hasListingColumn('verified')
+}
+
+/**
+ * Set the verified or featured flag on one row, from the listings table.
+ *
+ * Deliberately id-scoped like every other write here. It exists alongside the
+ * full editor because verifying is a decision an admin makes about a listing
+ * they are looking at, not an edit to its content.
+ */
+export async function setListingFlag(
+  id: number,
+  flag: 'verified' | 'featured',
+  value: boolean,
+): Promise<void> {
+  const db = requireSupabase()
+  const { error } = await db
+    .from('listings')
+    .update({ [flag]: value, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw new Error(friendly(error.message))
+  invalidateDirectory()
 }
 
 /** Flip one listing between active and inactive, straight from the table row. */
@@ -573,6 +620,7 @@ export async function setListingStatus(id: number, status: ListingStatus): Promi
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', id)
   if (error) throw new Error(friendly(error.message))
+  invalidateDirectory()
 }
 
 /**
@@ -587,6 +635,7 @@ export async function deleteListing(listing: Pick<Listing, 'id' | 'imageUrl'>): 
   const db = requireSupabase()
   const { error } = await db.from('listings').delete().eq('id', listing.id)
   if (error) throw new Error(friendly(error.message))
+  invalidateDirectory()
 
   await removeListingImage(listing.imageUrl)
 }

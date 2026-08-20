@@ -29,16 +29,8 @@ export default function ServicesPage() {
 
         {/* Published from the admin panel. Renders nothing until it has rows,
             so this page is unchanged until somebody adds one. */}
-        <ListingsSection
-          section="services"
-          title="Listed services"
-          description="Added by the ELAKAI team."
-        />
-        <ListingsSection
-          section="utilities"
-          title="Utilities"
-          description="Added by the ELAKAI team."
-        />
+        <ListingsSection section="services" title="Listed services" />
+        <ListingsSection section="utilities" title="Utilities" />
       </Section>
     </>
   )

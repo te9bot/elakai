@@ -109,6 +109,12 @@ export type ListingRow = {
    */
   services?: unknown
   maps_url?: string | null
+  /**
+   * Added by migration 0014 (and by 0004, which defines the same two columns).
+   * Null means "nobody has said" — see `Listing.verified`.
+   */
+  verified?: boolean | null
+  featured?: boolean | null
 }
 
 /**
@@ -144,6 +150,20 @@ export type Listing = {
   services: string[]
   /** A Google Maps link for this listing, or empty. See migration 0007. */
   mapsUrl: string
+  /**
+   * Whether this record has been checked against an official source.
+   *
+   * Three-valued on purpose, and null is the important one: it means the
+   * database has not been asked — either the column is absent (migration 0014
+   * has not run) or the row predates it. A page that shows a "verified" badge
+   * must not turn every unmigrated listing into an unverified one, so null is
+   * read as "fall back to whatever the bundled record said" rather than as
+   * false. Once an admin toggles the switch the answer is a real boolean and
+   * the database is the only thing that decides.
+   */
+  verified: boolean | null
+  /** Whether this listing is promoted on the homepage rails. See `verified`. */
+  featured: boolean | null
   status: ListingStatus
   displayOrder: number
   createdAt: string
@@ -299,6 +319,8 @@ export function toListing(r: ListingRow): Listing {
     imageUrl: r.image_url || null,
     services: toServiceList(r.services),
     mapsUrl: r.maps_url?.trim() ?? '',
+    verified: typeof r.verified === 'boolean' ? r.verified : null,
+    featured: typeof r.featured === 'boolean' ? r.featured : null,
     status: r.status === 'active' ? 'active' : 'inactive',
     displayOrder: r.display_order ?? 0,
     createdAt: r.created_at ?? '',

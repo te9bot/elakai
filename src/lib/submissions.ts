@@ -1,3 +1,4 @@
+import { invalidateDirectory } from './api'
 import { requireSupabase, supabase } from './supabase'
 import { fromServiceList, toServiceList } from './listings'
 import { toStoredPhone } from './phone'
@@ -544,6 +545,10 @@ export async function approveSubmission(
   })
 
   if (error) throw new Error(friendly(error.message))
+
+  // An approval publishes a listing, so the public read path's per-tab caches
+  // are now a snapshot from before it existed. See invalidateDirectory.
+  invalidateDirectory()
 
   const result = (data ?? {}) as Record<string, unknown>
   return {

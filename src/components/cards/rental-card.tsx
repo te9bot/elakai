@@ -1,4 +1,5 @@
 import { Bath, BedDouble, MapPin, Maximize, Sofa } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { ListingPhoto } from '@/components/listing-photo'
 import { VerifiedBadge } from '@/components/status'
@@ -36,10 +37,22 @@ export function RentalCard({
   rental,
   className,
   onOpen,
+  href,
 }: {
   rental: Rental
   className?: string
+  /** Opens the detail drawer. Used on the rentals page, which has one. */
   onOpen?: (rental: Rental) => void
+  /**
+   * Where the card goes when there is no drawer to open — the homepage rail,
+   * for one, where these cards were previously inert: no `onOpen`, no link,
+   * nothing to tap. A card that renders a title, a price and a photograph and
+   * then does nothing when pressed reads as a broken page.
+   *
+   * Ignored when `onOpen` is given: a card should not have two answers to one
+   * tap.
+   */
+  href?: string
 }) {
   const { t, L, n } = useI18n()
   const cat = CATEGORY_MAP[rental.category]
@@ -130,7 +143,20 @@ export function RentalCard({
         {/* ---- Body ---- */}
         <div className="p-4">
           <h3 className="text-body font-bold leading-snug text-balance">
-            {onOpen ? (
+            {!onOpen && href ? (
+              <Link
+                to={href}
+                className={cn(
+                  'text-left transition-colors hover:text-primary',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
+                  // Same stretched hit area as the button below: the whole
+                  // card is the target, on a phone as much as on a desktop.
+                  'after:absolute after:inset-0 after:content-[""]',
+                )}
+              >
+                {L(rental.title)}
+              </Link>
+            ) : onOpen ? (
               <button
                 type="button"
                 onClick={() => onOpen(rental)}
@@ -171,11 +197,16 @@ export function RentalCard({
                 </span>
               </Spec>
             )}
-            <Spec icon={<Maximize className="size-3.5" aria-hidden="true" />}>
-              <span className="tnum">
-                {n(rental.sizeSqft)} {t('rentals.sqft')}
-              </span>
-            </Spec>
+            {/* Hidden at zero rather than rendered as "0 sqft": the flat
+                schema has no floor-area column, so a listing created in the
+                admin panel legitimately has no figure here. */}
+            {rental.sizeSqft > 0 && (
+              <Spec icon={<Maximize className="size-3.5" aria-hidden="true" />}>
+                <span className="tnum">
+                  {n(rental.sizeSqft)} {t('rentals.sqft')}
+                </span>
+              </Spec>
+            )}
             {rental.furnished && (
               <Spec icon={<Sofa className="size-3.5" aria-hidden="true" />}>
                 {t('rentals.furnishedYes')}
@@ -185,12 +216,19 @@ export function RentalCard({
 
           {/* ---- Price line ---- */}
           <div className="mt-4 flex items-end justify-between gap-3 border-t border-line pt-3.5">
-            <p className="flex items-baseline gap-1">
-              <span className="tnum text-title text-primary">{n(formatBDT(rental.rent))}</span>
-              <span className="text-meta font-semibold text-ink-subtle">
-                {t('rentals.perMonth')}
-              </span>
-            </p>
+            {/* Zero means the price column held no number at all — "Negotiable",
+                or nothing yet. A card that says 0 taka a month is worse than
+                one that leaves the line to the tenant badge. */}
+            {rental.rent > 0 ? (
+              <p className="flex items-baseline gap-1">
+                <span className="tnum text-title text-primary">{n(formatBDT(rental.rent))}</span>
+                <span className="text-meta font-semibold text-ink-subtle">
+                  {t('rentals.perMonth')}
+                </span>
+              </p>
+            ) : (
+              <span />
+            )}
 
             <Badge variant="neutral" size="sm" className="shrink-0">
               {tenantLabel}

@@ -217,7 +217,11 @@ export function HomePage() {
                   distance={38}
                   delay={(i % 2) * 0.06}
                 >
-                  <RentalCard rental={r.rental} />
+                  {/* Every one of these is a row of `public.listings`, so the
+                      card leads to that row's own page. Before the cutover
+                      these were bundled records with no database id and no
+                      drawer on this page, which left them inert. */}
+                  <RentalCard rental={r.rental} href={rentalHref(r.rental)} />
                 </Reveal>
               </ParallaxLayer>
             ))}
@@ -263,16 +267,24 @@ export function HomePage() {
           Renders nothing until something is published, so the homepage is
           unchanged until it has content to show. */}
       <Section className="pt-0">
-        <ListingsSection
-          section={undefined}
-          title={t('home.section.listings')}
-          description={t('home.section.listings.sub')}
-        />
+        <ListingsSection section={undefined} title={t('home.section.listings')} />
       </Section>
 
       <ClosingCta />
     </>
   )
+}
+
+/**
+ * Where a rental card on the homepage goes.
+ *
+ * A rental mapped from the database carries its row id, and `/listing/:id` is
+ * that row's public page. A bundled record — served only when nothing has been
+ * published yet — has no such page, so the card goes to the rentals index,
+ * which is where its detail drawer lives.
+ */
+function rentalHref(rental: { id: string }): string {
+  return /^\d+$/.test(rental.id) ? `/listing/${rental.id}` : '/rentals'
 }
 
 /* ------------------------------------------------------------------ */
